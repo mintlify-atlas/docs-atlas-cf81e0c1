@@ -1,0 +1,423 @@
+---
+title: Storage
+description: Persist data with Volumes, PersistentVolumes, PersistentVolumeClaims, and StorageClasses
+---
+
+# Storage
+
+Kubernetes provides multiple storage abstractions to handle persistent data. Understanding the storage hierarchy is key to managing stateful applications.
+
+## Storage Hierarchy
+
+<Accordion title="Understanding Storage Concepts">
+  **Volume**: Directory accessible to containers in a Pod. Lifecycle tied to Pod.
+
+  **PersistentVolume (PV)**: Cluster-level storage resource. Lifecycle independent of Pods.
+
+  **PersistentVolumeClaim (PVC)**: Request for storage by a user. Binds to a PV.
+
+  **StorageClass**: Defines types of storage and provisioning parameters. Enables dynamic provisioning.
+</Accordion>
+
+## Volumes
+
+Volumes provide storage that persists across container restarts but is tied to the Pod's lifecycle.
+
+### HostPath Volume
+
+Mounts a directory from the host node's filesystem into the Pod.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnappone
+  namespace: learning
+  labels:
+   app: nnappone
+spec:
+  volumes:
+    - name: "web-data"
+      hostPath:
+        path: "/tmp/webserver"
+  containers:
+    - name: networknuts-app
+      image: lovelearnlinux/webserver:v1
+      volumeMounts:
+        - mountPath: "/var/www/html"
+          name: "web-data"
+      resources:
+        requests:
+          cpu: "400m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+      ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+```
+
+<Warning>
+  HostPath volumes are **not portable**. If the Pod is rescheduled to a different node, it won't have access to the same data.
+</Warning>
+
+### Common Volume Types
+
+<Tabs>
+  <Tab title="emptyDir">
+    Temporary storage created when a Pod is assigned to a node.
+
+    ```yaml
+    volumes:
+    - name: cache-volume
+      emptyDir: {}
+    ```
+
+    **Use cases**: 
+    - Scratch space
+    - Cache
+    - Sharing data between containers in the same Pod
+
+    **Lifecycle**: Data is deleted when Pod is removed from node.
+  </Tab>
+
+  <Tab title="hostPath">
+    Mounts a file or directory from the host node.
+
+    ```yaml
+    volumes:
+    - name: host-volume
+      hostPath:
+        path: /data
+        type: DirectoryOrCreate
+    ```
+
+    **Use cases**:
+    - Access Docker internals (use `/var/lib/docker`)
+    - Running system monitoring agents
+
+    **Risk**: Pods can access sensitive host files.
+  </Tab>
+
+  <Tab title="configMap">
+    Injects ConfigMap data as files.
+
+    ```yaml
+    volumes:
+    - name: config-volume
+      configMap:
+        name: my-config
+    ```
+
+    **Use cases**: Application configuration files.
+  </Tab>
+
+  <Tab title="secret">
+    Injects Secret data as files.
+
+    ```yaml
+    volumes:
+    - name: secret-volume
+      secret:
+        secretName: my-secret
+    ```
+
+    **Use cases**: Credentials, certificates, API keys.
+  </Tab>
+</Tabs>
+
+## PersistentVolumes (PV)
+
+PersistentVolumes are cluster-wide storage resources provisioned by administrators.
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pvone-nfs
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: slow
+  nfs:
+    path: /foldername
+    server: ip-address-nfs-server
+```
+
+### Access Modes
+
+<CodeGroup>
+```yaml ReadWriteOnce (RWO)
+accessModes:
+  - ReadWriteOnce
+# Volume can be mounted read-write by a single node
+```
+
+```yaml ReadOnlyMany (ROX)
+accessModes:
+  - ReadOnlyMany
+# Volume can be mounted read-only by many nodes
+```
+
+```yaml ReadWriteMany (RWX)
+accessModes:
+  - ReadWriteMany
+# Volume can be mounted read-write by many nodes
+```
+</CodeGroup>
+
+<Note>
+  Not all storage backends support all access modes. For example, AWS EBS only supports ReadWriteOnce.
+</Note>
+
+### Reclaim Policies
+
+<Tabs>
+  <Tab title="Retain">
+    Manual reclamation. Data is preserved after PVC deletion.
+
+    ```yaml
+    persistentVolumeReclaimPolicy: Retain
+    ```
+
+    **Use case**: Production data that needs manual review before deletion.
+  </Tab>
+
+  <Tab title="Recycle">
+    Basic scrub (`rm -rf /volume/*`) and make available again.
+
+    ```yaml
+    persistentVolumeReclaimPolicy: Recycle
+    ```
+
+    **Deprecated**: Use dynamic provisioning with Delete policy instead.
+  </Tab>
+
+  <Tab title="Delete">
+    Deletes the underlying storage asset (cloud disk).
+
+    ```yaml
+    persistentVolumeReclaimPolicy: Delete
+    ```
+
+    **Use case**: Dynamically provisioned volumes in cloud environments.
+  </Tab>
+</Tabs>
+
+## PersistentVolumeClaims (PVC)
+
+PVCs are requests for storage by users. They bind to available PVs that match the requirements.
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: myclaim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 4Gi
+  storageClassName: slow
+```
+
+### Binding Process
+
+1. User creates a PVC
+2. Kubernetes finds a PV matching:
+   - Storage size (PV >= PVC request)
+   - Access mode
+   - StorageClass (if specified)
+3. PVC binds to PV
+4. Pod uses PVC by referencing it
+
+<Tip>
+  A PVC will remain **Pending** until a matching PV is available or dynamically provisioned.
+</Tip>
+
+## Using PVCs in Deployments
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: lovelearnlinux/webserver:v1
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - mountPath: "/var/www/html"
+          name: webroot
+      volumes:
+        - name: webroot
+          persistentVolumeClaim:
+            claimName: myclaim
+```
+
+## StorageClass
+
+StorageClasses enable dynamic provisioning of PersistentVolumes.
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  iops: "3000"
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+```
+
+### Common Provisioners
+
+<CodeGroup>
+```yaml AWS EBS
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  encrypted: "true"
+```
+
+```yaml GCP Persistent Disk
+provisioner: kubernetes.io/gce-pd
+parameters:
+  type: pd-ssd
+  replication-type: regional-pd
+```
+
+```yaml Azure Disk
+provisioner: kubernetes.io/azure-disk
+parameters:
+  storageaccounttype: Premium_LRS
+  kind: Managed
+```
+
+```yaml NFS (external)
+provisioner: example.com/nfs
+parameters:
+  server: nfs-server.example.com
+  path: /exports
+```
+</CodeGroup>
+
+### Dynamic Provisioning
+
+When you create a PVC with a StorageClass, Kubernetes automatically creates a matching PV.
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dynamic-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast  # References StorageClass
+  resources:
+    requests:
+      storage: 10Gi
+```
+
+Kubernetes will:
+1. Create a 10Gi volume using the "fast" StorageClass
+2. Bind it to the PVC automatically
+3. Delete the volume when the PVC is deleted (if reclaimPolicy: Delete)
+
+## Volume Management Commands
+
+```bash
+# List PersistentVolumes
+kubectl get pv
+
+# List PersistentVolumeClaims
+kubectl get pvc
+
+# Describe PV
+kubectl describe pv pvone-nfs
+
+# Describe PVC
+kubectl describe pvc myclaim
+
+# List StorageClasses
+kubectl get storageclass
+
+# Delete PVC (may delete PV depending on reclaim policy)
+kubectl delete pvc myclaim
+```
+
+## StatefulSet Storage
+
+StatefulSets use VolumeClaimTemplates for automatic PVC creation:
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: "nginx"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: www
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "fast"
+      resources:
+        requests:
+          storage: 1Gi
+```
+
+Each Pod gets its own PVC (`www-web-0`, `www-web-1`, `www-web-2`).
+
+## Best Practices
+
+- Use PVCs instead of directly referencing PVs in Pods
+- Enable dynamic provisioning with StorageClasses for cloud environments
+- Set appropriate reclaim policies (Retain for production data)
+- Use ReadWriteMany only when necessary (limited support, performance impact)
+- Monitor storage usage and set appropriate size limits
+- Use volumeBindingMode: WaitForFirstConsumer for zone-aware provisioning
+- Back up critical data stored in PersistentVolumes
+- Test disaster recovery procedures for stateful applications
+- Use StatefulSets for applications requiring stable storage identifiers

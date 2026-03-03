@@ -1,0 +1,189 @@
+---
+title: "CKA Exam Overview"
+description: "Complete guide to preparing for the Certified Kubernetes Administrator exam"
+---
+
+## What is the CKA Exam?
+
+The Certified Kubernetes Administrator (CKA) exam is a performance-based certification that validates your skills in administering Kubernetes clusters in production environments. The exam tests practical knowledge through hands-on command-line tasks.
+
+### Exam Format
+
+<Accordion title="Exam Details">
+  - **Duration**: 2 hours
+  - **Format**: Performance-based (command line)
+  - **Questions**: 15-20 hands-on tasks
+  - **Passing Score**: 66%
+  - **Environment**: Browser-based terminal
+  - **Resources**: kubernetes.io documentation allowed
+</Accordion>
+
+## Key Domain Areas
+
+The CKA exam covers the following domains:
+
+<Steps>
+  <Step title="Cluster Architecture, Installation & Configuration (25%)">
+    - Manage role-based access control (RBAC)
+    - Use kubeadm to install and upgrade clusters
+    - Manage highly available Kubernetes clusters
+    - Configure etcd backup and restore
+  </Step>
+  
+  <Step title="Workloads & Scheduling (15%)">
+    - Understand deployments and rolling updates
+    - Use ConfigMaps and Secrets
+    - Configure Pod resource requirements
+    - Understand manifest management and templating
+  </Step>
+  
+  <Step title="Services & Networking (20%)">
+    - Understand network policies
+    - Configure Services (ClusterIP, NodePort, LoadBalancer)
+    - Use Ingress controllers and Ingress resources
+    - Understand CoreDNS and cluster DNS
+  </Step>
+  
+  <Step title="Storage (10%)">
+    - Understand storage classes and volume types
+    - Configure PersistentVolumes and PersistentVolumeClaims
+    - Configure applications with persistent storage
+  </Step>
+  
+  <Step title="Troubleshooting (30%)">
+    - Evaluate cluster and node logging
+    - Troubleshoot application failures
+    - Troubleshoot cluster component failures
+    - Debug network issues
+  </Step>
+</Steps>
+
+## Preparation Strategy
+
+### 1. Build a Strong Foundation
+
+<Note>
+  Start by understanding core Kubernetes concepts before diving into exam-specific preparation. Focus on understanding **why** things work, not just **how** to do them.
+</Note>
+
+**Essential Topics:**
+- Pod lifecycle and scheduling
+- Controllers (Deployments, DaemonSets, StatefulSets)
+- Services and networking fundamentals
+- Storage abstractions
+- RBAC and security
+
+### 2. Master kubectl
+
+<Tip>
+  Speed matters in the exam. Mastering kubectl commands and aliases can save precious minutes.
+</Tip>
+
+Focus on:
+- Imperative commands for quick resource creation
+- YAML generation with `--dry-run=client -o yaml`
+- Resource manipulation with `kubectl edit`, `kubectl patch`
+- Context and namespace switching
+- Quick troubleshooting with `kubectl logs`, `kubectl describe`, `kubectl get events`
+
+### 3. Practice Hands-On
+
+<Warning>
+  Reading documentation is not enough. You must practice in a real Kubernetes environment to develop muscle memory and speed.
+</Warning>
+
+**Practice Resources:**
+- Set up local clusters with kubeadm, kind, or minikube
+- Work through challenge scenarios
+- Time yourself on practice tasks
+- Get comfortable with vim or nano for YAML editing
+
+### 4. Learn to Use Documentation Efficiently
+
+During the exam, you can access kubernetes.io documentation:
+
+- Bookmark frequently needed pages before the exam
+- Practice searching quickly for specific topics
+- Learn to copy and modify YAML examples
+- Understand the structure of the documentation
+
+### 5. Time Management
+
+<Accordion title="Time Management Tips">
+  - **Skip and return**: Flag difficult questions and move on
+  - **Quick wins first**: Start with tasks you're confident about
+  - **Use imperative commands**: Save time on simple resource creation
+  - **Verify as you go**: Use `kubectl get` to confirm changes
+  - **Leave time for review**: Reserve 10-15 minutes at the end
+</Accordion>
+
+## Study Timeline
+
+### Beginner (3-4 months)
+
+<Steps>
+  <Step title="Month 1: Fundamentals">
+    Learn core Kubernetes concepts, architecture, and basic kubectl commands
+  </Step>
+  
+  <Step title="Month 2: Deep Dive">
+    Study exam domains in detail, practice YAML creation, explore advanced topics
+  </Step>
+  
+  <Step title="Month 3: Hands-On Practice">
+    Work through challenge scenarios, simulate exam conditions, identify weak areas
+  </Step>
+  
+  <Step title="Month 4: Final Preparation">
+    Take practice exams, refine speed and accuracy, review difficult topics
+  </Step>
+</Steps>
+
+### Intermediate (6-8 weeks)
+
+<Steps>
+  <Step title="Weeks 1-2: Review & Gaps">
+    Refresh concepts, identify knowledge gaps, focus on weak areas
+  </Step>
+  
+  <Step title="Weeks 3-5: Intensive Practice">
+    Complete challenge sets, practice under time pressure, master kubectl efficiency
+  </Step>
+  
+  <Step title="Weeks 6-8: Exam Simulation">
+    Take full practice exams, optimize workflow, final review
+  </Step>
+</Steps>
+
+## Exam Day Preparation
+
+<Note>
+  Arrive early and ensure your testing environment meets all requirements. Technical issues can eat into your exam time.
+</Note>
+
+**Before the Exam:**
+- Test your internet connection and computer
+- Clear your workspace (no papers, phones, or extra monitors)
+- Have a valid ID ready
+- Close all applications except the browser
+- Take the system compatibility check
+
+**During the Exam:**
+- Read each question carefully
+- Check which cluster context to use
+- Verify your changes with `kubectl get` commands
+- Use aliases and shortcuts you've practiced
+- Stay calm and manage your time
+
+## Resources
+
+<Accordion title="Official Resources">
+  - [CNCF CKA Exam Page](https://www.cncf.io/certification/cka/)
+  - [Kubernetes Official Documentation](https://kubernetes.io/docs/)
+  - [kubectl Cheat Sheet](https://kubernetes.io/docs/reference/kubectl/cheatsheet/)
+  - [CKA Curriculum](https://github.com/cncf/curriculum)
+</Accordion>
+
+<Tip>
+  Join the Kubernetes Slack community and CKA study groups to learn from others preparing for the exam.
+</Tip>

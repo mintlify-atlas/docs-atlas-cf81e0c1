@@ -1,0 +1,447 @@
+---
+title: Nginx Ingress Controller
+description: Deploy and configure Nginx Ingress Controller for routing HTTP traffic to Kubernetes services
+---
+
+The Nginx Ingress Controller manages external access to services in a Kubernetes cluster, typically HTTP/HTTPS. It provides features like SSL termination, name-based virtual hosting, and path-based routing.
+
+## Installation
+
+<Steps>
+  <Step title="Clone Repository">
+    Clone the official NGINX Ingress Controller repository:
+
+    ```bash
+    git clone https://github.com/nginxinc/kubernetes-ingress.git --branch v3.1.1
+    cd kubernetes-ingress/deployments/
+    ```
+  </Step>
+
+  <Step title="Create Namespace and Service Account">
+    ```bash
+    kubectl apply -f common/ns-and-sa.yaml
+    ```
+  </Step>
+
+  <Step title="Apply RBAC Resources">
+    ```bash
+    kubectl apply -f rbac/rbac.yaml
+    kubectl apply -f rbac/ap-rbac.yaml
+    kubectl apply -f rbac/apdos-rbac.yaml
+    ```
+  </Step>
+
+  <Step title="Create Configuration Resources">
+    ```bash
+    kubectl apply -f common/nginx-config.yaml
+    kubectl apply -f common/ingress-class.yaml
+    ```
+  </Step>
+
+  <Step title="Install Custom Resource Definitions">
+    ```bash
+    kubectl apply -f common/crds/k8s.nginx.org_virtualservers.yaml
+    kubectl apply -f common/crds/k8s.nginx.org_virtualserverroutes.yaml
+    kubectl apply -f common/crds/k8s.nginx.org_transportservers.yaml
+    kubectl apply -f common/crds/k8s.nginx.org_policies.yaml
+    kubectl apply -f common/crds/k8s.nginx.org_globalconfigurations.yaml
+    ```
+  </Step>
+
+  <Step title="Deploy Ingress Controller">
+    Deploy as DaemonSet to run on all nodes:
+
+    ```bash
+    kubectl apply -f daemon-set/nginx-ingress.yaml
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    kubectl get ns
+    kubectl -n nginx-ingress get ds
+    kubectl -n nginx-ingress get pods
+    ```
+  </Step>
+</Steps>
+
+<Info>
+After installation, accessing any node IP via a browser will show a **404 Not Found** error from NGINX. This confirms the controller is receiving requests and waiting for Ingress resources.
+</Info>
+
+## Deploy Sample Application
+
+<Steps>
+  <Step title="Create Application Manifest">
+    ```yaml petclinic.yaml
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: petclinic
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: petclinic
+      namespace: petclinic
+    spec:
+      replicas: 2
+      selector:
+        matchLabels:
+          app: petclinic
+      template:
+        metadata:
+          labels:
+            app: petclinic
+        spec:
+          containers:
+          - name: pet
+            image: lovelearnlinux/webserver:v1
+            ports:
+            - containerPort: 80
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: petclinic-svc
+      namespace: petclinic
+    spec:
+      ports:
+      - port: 80
+        targetPort: 80
+        protocol: TCP
+        name: http
+      selector:
+        app: petclinic
+    ---
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: petclinic-ingress
+      namespace: petclinic
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: /
+    spec:
+      ingressClassName: nginx
+      rules:
+      - host: petclinic.example.com
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: petclinic-svc
+                port:
+                  number: 80
+    ```
+  </Step>
+
+  <Step title="Apply the Manifest">
+    ```bash
+    kubectl apply -f petclinic.yaml
+    ```
+  </Step>
+</Steps>
+
+## Testing the Ingress
+
+### Local DNS Configuration
+
+Since we don't have a real DNS setup, modify `/etc/hosts` on worker nodes:
+
+```bash
+# Add this line to /etc/hosts on each worker node
+<worker-ip> petclinic.example.com
+```
+
+### Test Access
+
+```bash
+# From the worker node
+curl http://petclinic.example.com
+```
+
+You should see the application response.
+
+## Ingress Configuration
+
+### Path-Based Routing
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: path-based-ingress
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+      - path: /web
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+```
+
+### Host-Based Routing
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: host-based-ingress
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: app1.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app1-service
+            port:
+              number: 80
+  - host: app2.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app2-service
+            port:
+              number: 80
+```
+
+## SSL/TLS Configuration
+
+<Steps>
+  <Step title="Create TLS Secret">
+    ```bash
+    kubectl create secret tls my-tls-secret \
+      --cert=path/to/tls.crt \
+      --key=path/to/tls.key \
+      -n petclinic
+    ```
+  </Step>
+
+  <Step title="Update Ingress with TLS">
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: petclinic-ingress
+      namespace: petclinic
+    spec:
+      ingressClassName: nginx
+      tls:
+      - hosts:
+        - petclinic.example.com
+        secretName: my-tls-secret
+      rules:
+      - host: petclinic.example.com
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: petclinic-svc
+                port:
+                  number: 80
+    ```
+  </Step>
+</Steps>
+
+## Common Annotations
+
+<CodeGroup>
+```yaml URL Rewriting
+annotations:
+  nginx.ingress.kubernetes.io/rewrite-target: /
+```
+
+```yaml SSL Redirect
+annotations:
+  nginx.ingress.kubernetes.io/ssl-redirect: "true"
+```
+
+```yaml CORS
+annotations:
+  nginx.ingress.kubernetes.io/enable-cors: "true"
+  nginx.ingress.kubernetes.io/cors-allow-origin: "https://example.com"
+```
+
+```yaml Rate Limiting
+annotations:
+  nginx.ingress.kubernetes.io/limit-rps: "10"
+```
+
+```yaml Custom Headers
+annotations:
+  nginx.ingress.kubernetes.io/configuration-snippet: |
+    add_header X-Custom-Header "value";
+```
+</CodeGroup>
+
+## Advanced Features
+
+### Basic Authentication
+
+<Steps>
+  <Step title="Create htpasswd File">
+    ```bash
+    htpasswd -c auth username
+    ```
+  </Step>
+
+  <Step title="Create Secret">
+    ```bash
+    kubectl create secret generic basic-auth --from-file=auth -n petclinic
+    ```
+  </Step>
+
+  <Step title="Add Annotation">
+    ```yaml
+    annotations:
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: basic-auth
+      nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required'
+    ```
+  </Step>
+</Steps>
+
+### Custom Error Pages
+
+```yaml
+annotations:
+  nginx.ingress.kubernetes.io/custom-http-errors: "404,503"
+  nginx.ingress.kubernetes.io/default-backend: custom-error-pages
+```
+
+### Canary Deployments
+
+```yaml
+# Production Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: production
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: production-service
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+---
+# Canary Ingress (10% traffic)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: canary
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: canary-service
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+```
+
+## Monitoring and Troubleshooting
+
+### View Ingress Controller Logs
+
+```bash
+kubectl logs -n nginx-ingress <pod-name>
+```
+
+### Check Ingress Status
+
+```bash
+kubectl get ingress -A
+kubectl describe ingress <ingress-name> -n <namespace>
+```
+
+### Test Backend Connectivity
+
+```bash
+kubectl run test --image=curlimages/curl -it --rm -- sh
+curl http://<service-name>.<namespace>.svc.cluster.local
+```
+
+## Deployment Options
+
+<Accordion title="DaemonSet">
+Runs an Ingress Controller pod on every node. Suitable for:
+- High availability
+- Direct node port access
+- On-premises clusters
+
+```bash
+kubectl apply -f daemon-set/nginx-ingress.yaml
+```
+</Accordion>
+
+<Accordion title="Deployment">
+Runs a specific number of replicas. Suitable for:
+- Cloud environments with load balancers
+- Resource-constrained clusters
+- Better control over pod placement
+
+```bash
+kubectl apply -f deployment/nginx-ingress.yaml
+```
+</Accordion>
+
+<Note>
+The DaemonSet approach ensures that every node can handle incoming traffic directly, while the Deployment approach works better with cloud load balancers.
+</Note>
+
+## Best Practices
+
+- Use IngressClass to support multiple ingress controllers
+- Always set resource limits for the ingress controller pods
+- Enable RBAC and use least privilege principles
+- Implement TLS for all public-facing applications
+- Monitor ingress controller metrics and logs
+- Use separate ingress resources per application/namespace
+- Test configuration changes in non-production first
+
+<Warning>
+Direct exposure of node ports in production is not recommended. Use a proper LoadBalancer service or cloud provider's load balancer integration.
+</Warning>

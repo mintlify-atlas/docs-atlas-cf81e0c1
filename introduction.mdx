@@ -1,0 +1,90 @@
+---
+title: Introduction to Kubernetes
+description: Master container orchestration with hands-on Kubernetes tutorials and practical guides
+---
+
+# Introduction to Kubernetes
+
+Welcome to your comprehensive Kubernetes learning guide. This documentation provides practical, hands-on tutorials for mastering container orchestration with Kubernetes.
+
+## What is Kubernetes?
+
+Kubernetes is an open-source container orchestration platform that automates the deployment, scaling, and management of containerized applications. It groups containers into logical units for easy management and discovery.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Automated rollouts and rollbacks" icon="rotate">
+    Kubernetes progressively rolls out changes to your application while monitoring health to ensure reliability
+  </Card>
+  <Card title="Service discovery and load balancing" icon="network-wired">
+    Automatically exposes containers using DNS names or IP addresses and distributes network traffic for stability
+  </Card>
+  <Card title="Storage orchestration" icon="database">
+    Automatically mount local storage, public cloud providers, or network storage systems
+  </Card>
+  <Card title="Self-healing" icon="shield-heart">
+    Restarts failed containers, replaces containers, and kills unresponsive containers automatically
+  </Card>
+  <Card title="Secret and configuration management" icon="key">
+    Store and manage sensitive information like passwords, tokens, and SSH keys securely
+  </Card>
+  <Card title="Horizontal scaling" icon="arrows-left-right">
+    Scale your application up or down with simple commands, UI, or automatically based on CPU usage
+  </Card>
+</CardGroup>
+
+## Getting started
+
+<CardGroup cols={2}>
+  <Card title="Cluster setup" icon="server" href="/cluster-setup">
+    Set up your first Kubernetes cluster using kubeadm with master and worker nodes
+  </Card>
+  <Card title="Core concepts" icon="book">
+    Learn about pods, deployments, services, and other fundamental Kubernetes objects
+  </Card>
+  <Card title="Networking" icon="diagram-project">
+    Understand Kubernetes networking with Calico and service mesh concepts
+  </Card>
+  <Card title="Best practices" icon="star">
+    Production-ready configurations, security hardening, and optimization techniques
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+Before you begin, you should have:
+
+- Basic understanding of Docker and containerization
+- Familiarity with Linux command line
+- Ubuntu 18.04 or later (recommended for scripts in this guide)
+- Multiple machines or VMs for cluster setup (1 master + worker nodes)
+
+<Info>
+  You can verify your YAML configurations online at [yamllint.com](https://www.yamllint.com/) to catch syntax errors before applying them to your cluster.
+</Info>
+
+## What you'll learn
+
+This guide covers:
+
+- **Cluster setup**: Install and configure Kubernetes clusters from scratch
+- **Workload management**: Deploy and manage applications using pods and deployments
+- **Networking**: Configure pod networking, services, and ingress controllers
+- **Storage**: Persistent volumes, storage classes, and stateful applications
+- **Security**: RBAC, network policies, and secrets management
+- **Monitoring**: Health checks, logging, and observability
+
+## Next steps
+
+<Steps>
+  <Step title="Set up your cluster">
+    Follow the [cluster setup guide](/cluster-setup) to create your Kubernetes environment
+  </Step>
+  <Step title="Deploy your first application">
+    Learn how to deploy a containerized application to your cluster
+  </Step>
+  <Step title="Explore advanced topics">
+    Dive into networking, storage, and security configurations
+  </Step>
+</Steps>

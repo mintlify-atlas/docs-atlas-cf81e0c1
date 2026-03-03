@@ -1,0 +1,400 @@
+---
+title: "CKA Exam Tips & Shortcuts"
+description: "Essential kubectl shortcuts, time-saving techniques, and exam strategies for the CKA certification"
+---
+
+## Kubectl Efficiency
+
+Speed is critical in the CKA exam. Every second saved on typing can be used for solving more complex problems.
+
+### Essential Aliases
+
+Add these aliases to your `~/.bashrc` at the start of the exam:
+
+<Accordion title="Basic Aliases">
+```bash
+alias k='kubectl'
+alias kgp='kubectl get pods'
+alias kgs='kubectl get svc'
+alias kgn='kubectl get nodes'
+alias kgd='kubectl get deploy'
+alias kaf='kubectl apply -f'
+alias kdel='kubectl delete'
+alias klog='kubectl logs'
+alias kexec='kubectl exec -it'
+alias kdesc='kubectl describe'
+```
+</Accordion>
+
+<Accordion title="Advanced Aliases">
+```bash
+alias kgpa='kubectl get pods --all-namespaces'
+alias kgpw='kubectl get pods -o wide'
+alias kgpy='kubectl get pods -o yaml'
+alias kwp='kubectl get pods --watch'
+alias kdelp='kubectl delete pod'
+alias kpf='kubectl port-forward'
+alias kgno='kubectl get nodes -o wide'
+alias ktop='kubectl top'
+alias kctx='kubectl config current-context'
+alias kns='kubectl config set-context --current --namespace'
+```
+</Accordion>
+
+<Warning>
+  Apply aliases immediately after starting the exam. Remember to run `source ~/.bashrc` or open a new terminal session for aliases to take effect.
+</Warning>
+
+### Enable kubectl Autocompletion
+
+Autocompletion saves time and prevents typos:
+
+```bash
+source <(kubectl completion bash)
+echo "source <(kubectl completion bash)" >> ~/.bashrc
+complete -F __start_kubectl k  # autocomplete for 'k' alias
+```
+
+<Tip>
+  Press **Tab** twice to see all available options for kubectl commands.
+</Tip>
+
+## Imperative Commands
+
+Imperative commands are faster than writing YAML from scratch. Use them whenever possible.
+
+### Pod Creation
+
+```bash
+# Basic pod
+k run nginx --image=nginx
+
+# Pod with port
+k run nginx --image=nginx --port=80
+
+# Pod with labels
+k run nginx --image=nginx --labels="app=web,env=prod"
+
+# Dry run to generate YAML
+k run nginx --image=nginx --dry-run=client -o yaml > pod.yaml
+
+# Pod with command
+k run busybox --image=busybox -- sleep 3600
+```
+
+### Deployment Creation
+
+```bash
+# Basic deployment
+k create deploy nginx --image=nginx
+
+# Deployment with replicas
+k create deploy nginx --image=nginx --replicas=3
+
+# Generate YAML
+k create deploy nginx --image=nginx --replicas=3 --dry-run=client -o yaml > deploy.yaml
+```
+
+### Service Creation
+
+```bash
+# ClusterIP service
+k expose pod nginx --port=80 --target-port=80
+
+# NodePort service
+k expose deploy nginx --port=80 --type=NodePort
+
+# Generate service YAML
+k create service clusterip nginx --tcp=80:80 --dry-run=client -o yaml > service.yaml
+```
+
+### ConfigMap & Secret
+
+```bash
+# ConfigMap from literal
+k create configmap app-config --from-literal=key1=value1
+
+# ConfigMap from file
+k create configmap app-config --from-file=config.txt
+
+# Secret from literal
+k create secret generic db-secret --from-literal=password=secret123
+
+# Secret from file
+k create secret generic ssh-key --from-file=id_rsa=~/.ssh/id_rsa
+```
+
+### Namespace Operations
+
+```bash
+# Create namespace
+k create ns production
+
+# Set default namespace
+k config set-context --current --namespace=production
+
+# Check current namespace
+k config view --minify | grep namespace:
+```
+
+## Time-Saving Techniques
+
+### 1. Use Short Forms
+
+<Note>
+  Kubernetes resources have short names that can save typing time.
+</Note>
+
+```bash
+po    # pods
+svc   # services
+deploy # deployments
+rs    # replicasets
+ns    # namespaces
+cm    # configmaps
+pv    # persistentvolumes
+pvc   # persistentvolumeclaims
+sa    # serviceaccounts
+netpol # networkpolicies
+```
+
+Example:
+```bash
+k get po -n production
+k describe svc nginx
+k delete deploy webapp
+```
+
+### 2. YAML Generation & Editing
+
+<Accordion title="Generate and Edit Workflow">
+<Steps>
+  <Step title="Generate base YAML">
+    Use imperative commands with `--dry-run=client -o yaml`
+  </Step>
+  
+  <Step title="Redirect to file">
+    Save the output: `k run pod --image=nginx --dry-run=client -o yaml > pod.yaml`
+  </Step>
+  
+  <Step title="Edit the file">
+    Modify with vim: `vim pod.yaml`
+  </Step>
+  
+  <Step title="Apply changes">
+    Deploy: `k apply -f pod.yaml`
+  </Step>
+</Steps>
+</Accordion>
+
+### 3. Quick Editing with kubectl edit
+
+```bash
+# Edit deployment directly
+k edit deploy nginx
+
+# Edit with specific editor
+KUBE_EDITOR="nano" k edit pod nginx
+```
+
+<Tip>
+  Set your preferred editor at the start of the exam: `export KUBE_EDITOR=vim`
+</Tip>
+
+### 4. JSON Path for Specific Data
+
+Extract specific information without manual parsing:
+
+```bash
+# Get pod IPs
+k get pods -o jsonpath='{.items[*].status.podIP}'
+
+# Get node names
+k get nodes -o jsonpath='{.items[*].metadata.name}'
+
+# Get image names from all pods
+k get pods -o jsonpath='{.items[*].spec.containers[*].image}'
+
+# Custom columns
+k get pods -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[0].image
+```
+
+### 5. Force Delete When Needed
+
+```bash
+# Force delete pod
+k delete pod nginx --force --grace-period=0
+
+# Delete all pods in namespace
+k delete pods --all -n production
+```
+
+## Context and Namespace Management
+
+<Warning>
+  Always verify you're in the correct context and namespace before executing commands. Using the wrong context is a common exam mistake.
+</Warning>
+
+### Context Switching
+
+```bash
+# List contexts
+k config get-contexts
+
+# Switch context
+k config use-context cluster-name
+
+# View current context
+k config current-context
+```
+
+### Namespace Switching
+
+```bash
+# Set namespace for current context
+k config set-context --current --namespace=production
+
+# Or use -n flag for one-off commands
+k get pods -n production
+```
+
+<Tip>
+  Create an alias for quick namespace switching: `alias kns='kubectl config set-context --current --namespace'`
+  
+  Usage: `kns production`
+</Tip>
+
+## Vim Tips for YAML Editing
+
+Most exam takers use vim. Master these basics:
+
+### Essential Vim Commands
+
+```bash
+i          # Insert mode
+Esc        # Exit insert mode
+:wq        # Save and quit
+:q!        # Quit without saving
+yy         # Copy line
+dd         # Delete line
+p          # Paste below
+P          # Paste above
+u          # Undo
+Ctrl+r     # Redo
+/search    # Search forward
+?search    # Search backward
+n          # Next search result
+N          # Previous search result
+:set nu    # Show line numbers
+:set paste # Paste mode (preserves formatting)
+```
+
+### YAML-Specific Vim Settings
+
+Add to `~/.vimrc` at exam start:
+
+```vim
+set tabstop=2
+set shiftwidth=2
+set expandtab
+set autoindent
+```
+
+<Note>
+  Indentation is critical in YAML. Use spaces, not tabs. Vim's autoindent helps maintain proper structure.
+</Note>
+
+## Troubleshooting Shortcuts
+
+### Quick Diagnostics
+
+```bash
+# Check pod status
+k get pods -o wide
+
+# Describe for events
+k describe pod nginx
+
+# View logs
+k logs nginx
+k logs nginx -f  # follow
+k logs nginx --previous  # previous container instance
+k logs nginx -c container-name  # specific container
+
+# Check events
+k get events --sort-by='.lastTimestamp'
+k get events -n production --sort-by='.lastTimestamp'
+
+# Execute commands in pod
+k exec nginx -- ls /
+k exec -it nginx -- /bin/bash
+```
+
+### Resource Usage
+
+```bash
+# Node resource usage
+k top nodes
+
+# Pod resource usage
+k top pods
+k top pods -n production
+k top pods --containers  # per-container metrics
+```
+
+## Exam Strategy
+
+<Steps>
+  <Step title="Read the question carefully">
+    Note the required cluster context, namespace, and resource names. Questions often specify exact names and labels.
+  </Step>
+  
+  <Step title="Switch context immediately">
+    Use `kubectl config use-context` before starting work on a task.
+  </Step>
+  
+  <Step title="Use imperative commands when possible">
+    Only write YAML when necessary. Generate base YAML and edit rather than starting from scratch.
+  </Step>
+  
+  <Step title="Verify your work">
+    Always confirm with `kubectl get` after making changes. Check that pods are running and services are exposed correctly.
+  </Step>
+  
+  <Step title="Move on if stuck">
+    Flag difficult questions and return to them later. Don't let one problem consume too much time.
+  </Step>
+  
+  <Step title="Use documentation efficiently">
+    Search for YAML examples to copy and modify. Don't try to write complex manifests from memory.
+  </Step>
+</Steps>
+
+## Common Pitfalls
+
+<Warning>
+  Avoid these common mistakes:
+  
+  - Wrong cluster context
+  - Wrong namespace
+  - YAML indentation errors
+  - Forgetting to apply changes with `kubectl apply`
+  - Not verifying resources are in running state
+  - Spending too much time on one question
+  - Trying to write YAML from scratch instead of using imperative commands
+</Warning>
+
+## Final Checklist
+
+<Accordion title="Pre-Exam Setup (First 2 minutes)">
+  - [ ] Add kubectl aliases to `~/.bashrc`
+  - [ ] Enable kubectl autocompletion
+  - [ ] Set vim configuration in `~/.vimrc`
+  - [ ] Export `KUBE_EDITOR=vim`
+  - [ ] Verify `source ~/.bashrc` is applied
+  - [ ] Test an alias to confirm it works
+</Accordion>
+
+<Tip>
+  Practice this setup routine before the exam so it becomes automatic. These 2 minutes of setup will save you 20+ minutes during the exam.
+</Tip>

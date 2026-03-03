@@ -1,0 +1,522 @@
+---
+title: Security Best Practices
+description: Implement security scanning and policy enforcement with Trivy, Kyverno, and Kubescape
+---
+
+Secure your Kubernetes clusters with comprehensive security scanning, policy enforcement, and vulnerability management tools.
+
+## Trivy - Vulnerability Scanner
+
+Trivy is a comprehensive security scanner for containers, Kubernetes clusters, and infrastructure as code.
+
+### Installing Trivy
+
+```bash
+sudo apt-get install wget gnupg
+wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+sudo apt-get update
+sudo apt-get install trivy
+```
+
+### Scanning Kubernetes Cluster
+
+<CodeGroup>
+```bash Full Cluster Scan
+trivy k8s --tolerations node-role.kubernetes.io/control-plane=:NoSchedule --report summary
+trivy k8s --tolerations node-role.kubernetes.io/control-plane=:NoSchedule --report all
+```
+
+```bash Namespace Scan
+trivy k8s --tolerations node-role.kubernetes.io/control-plane=:NoSchedule --include-namespaces kube-system --report summary
+trivy k8s --tolerations node-role.kubernetes.io/control-plane=:NoSchedule --include-namespaces kube-system --report all
+```
+
+```bash Critical Issues Only
+trivy k8s --tolerations node-role.kubernetes.io/control-plane=:NoSchedule --severity=CRITICAL --report=summary
+```
+</CodeGroup>
+
+<Info>
+The `--tolerations` flag allows Trivy to deploy a host scanner to nodes with specific taints, providing a complete security assessment.
+</Info>
+
+### Scanning YAML Manifests
+
+<Steps>
+  <Step title="Create Test Manifest">
+    ```yaml depone.yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: nginx-deployment
+      labels:
+        app: nginx
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: nginx
+      template:
+        metadata:
+          labels:
+            app: nginx
+        spec:
+          containers:
+          - name: nginx
+            image: nginx:1.14.2
+            ports:
+            - containerPort: 80
+    ```
+  </Step>
+
+  <Step title="Scan the Manifest">
+    ```bash
+    trivy config depone.yaml
+    ```
+  </Step>
+
+  <Step title="Fix Issues">
+    Update the manifest based on recommendations:
+
+    ```yaml depone.yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: nginx-deployment
+      labels:
+        app: nginx
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: nginx
+      template:
+        metadata:
+          labels:
+            app: nginx
+        spec:
+          containers:
+          - name: nginx
+            image: nginx:1.14.2
+            ports:
+            - containerPort: 80
+            securityContext:
+              readOnlyRootFilesystem: true
+              allowPrivilegeEscalation: false
+              runAsNonRoot: true
+              runAsUser: 101
+              capabilities:
+                drop:
+                - ALL
+    ```
+  </Step>
+
+  <Step title="Re-scan">
+    ```bash
+    trivy config depone.yaml
+    ```
+  </Step>
+</Steps>
+
+### Trivy Configuration File
+
+Create a centralized configuration for consistent scanning:
+
+```yaml trivy.yaml
+scan:
+  scanners:
+    - vuln
+    - secret
+    - misconfig
+
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+vulnerability:
+  ignore-unfixed: true
+
+image:
+  removed-pkgs: true
+
+misconfiguration:
+  checks:
+    - kubernetes
+
+format: table
+
+exit-code: 1
+```
+
+Use the configuration:
+
+```bash
+trivy config --config trivy.yaml depone.yaml
+```
+
+### Ignoring False Positives
+
+Create `.trivyignore` to exclude specific findings:
+
+```text .trivyignore
+KSV001
+KSV012
+CVE-2021-12345
+```
+
+Scan with ignore file:
+
+```bash
+trivy config --config trivy.yaml --ignorefile .trivyignore depone.yaml
+```
+
+<Note>
+Trivy supports scanning images, filesystems, Git repositories, Kubernetes clusters, and IaC files (Terraform, CloudFormation, Dockerfile).
+</Note>
+
+## Kyverno - Policy Engine
+
+Kyverno is a policy engine designed specifically for Kubernetes, using YAML for policy definitions.
+
+### Installing Kyverno
+
+```bash
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm repo update
+helm install kyverno kyverno/kyverno -n kyverno --create-namespace
+```
+
+Verify installation:
+
+```bash
+kubectl get all -n kyverno
+```
+
+### Validation Policy - Require Resource Limits
+
+```yaml kyverno-resource-limits-needed-policy.yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: check-limits
+      match:
+        resources:
+          kinds:
+            - Pod
+      validate:
+        message: "CPU and memory limits are required."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"
+```
+
+```bash
+kubectl apply -f kyverno-resource-limits-needed-policy.yaml
+```
+
+<Info>
+Try creating a pod without resource limits - it will be rejected by Kyverno.
+</Info>
+
+### Mutation Policy - Auto-Add Labels
+
+```yaml kyverno-auto-label-policy.yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: auto-add-team-label
+spec:
+  rules:
+    - name: add-label
+      match:
+        resources:
+          kinds:
+            - Pod
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              team: devops
+```
+
+```bash
+kubectl apply -f kyverno-auto-label-policy.yaml
+```
+
+Test with a pod:
+
+```yaml demo-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demo
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+      resources:
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+```
+
+```bash
+kubectl apply -f demo-pod.yaml
+kubectl get pod demo --show-labels
+```
+
+The `team=devops` label is automatically added.
+
+### Validation Policy - Allowed Registries
+
+```yaml kyverno-selected-registry-policy.yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-registries
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: allowed-registries
+      match:
+        resources:
+          kinds:
+            - Pod
+      validate:
+        message: "Only images from ghcr.io or docker.io/lovelearnlinux/* are allowed."
+        pattern:
+          spec:
+            containers:
+              - image: "ghcr.io/* | docker.io/lovelearnlinux/*"
+```
+
+```bash
+kubectl apply -f kyverno-selected-registry-policy.yaml
+```
+
+### Validation Policy - Namespace Labels
+
+```yaml kyverno-label-on-namespace-policy.yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-namespace-labels
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: check-namespace-labels
+      match:
+        resources:
+          kinds:
+            - Namespace
+      validate:
+        message: "Namespaces must include the label 'owner'."
+        pattern:
+          metadata:
+            labels:
+              owner: "?*"
+```
+
+```bash
+kubectl apply -f kyverno-label-on-namespace-policy.yaml
+```
+
+Create namespace with required label:
+
+```bash
+kubectl create ns demo --dry-run=client -o yaml | kubectl label -f - owner=networknuts --local -o yaml | kubectl apply -f -
+# Or simpler:
+kubectl create ns demo --label=owner=networknuts
+```
+
+### Official Policy Examples
+
+<Accordion title="Add Default Resources">
+```bash
+kubectl apply -f https://github.com/kyverno/policies/raw/main/other/add-default-resources/add-default-resources.yaml
+```
+
+Automatically adds default resource requests/limits to pods.
+</Accordion>
+
+<Accordion title="Add Labels to Resources">
+```bash
+kubectl apply -f https://github.com/kyverno/policies/raw/main/other/add-labels/add-labels.yaml
+```
+
+Adds standard labels to pods and services.
+</Accordion>
+
+<Accordion title="Add Namespace Quota">
+```bash
+kubectl apply -f https://github.com/kyverno/policies/raw/main/best-practices/add-ns-quota/add-ns-quota.yaml
+```
+
+Automatically creates ResourceQuota and LimitRange when namespaces are created.
+</Accordion>
+
+### List Kyverno Policies
+
+```bash
+kubectl get clusterpolicy
+kubectl get policy -A
+```
+
+## Kubescape - Security Posture Scanner
+
+Kubescape scans Kubernetes clusters against security frameworks like NSA and MITRE ATT&CK.
+
+### Installation
+
+<CodeGroup>
+```bash Method 1
+curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+```
+
+```bash Method 2 (Ubuntu)
+sudo add-apt-repository ppa:kubescape/kubescape
+sudo apt update
+sudo apt install kubescape
+```
+</CodeGroup>
+
+### Scanning Cluster
+
+<CodeGroup>
+```bash Full Cluster Scan
+kubescape scan --enable-host-scan --verbose
+```
+
+```bash Framework Scan
+kubescape scan framework nsa
+kubescape scan framework mitre
+```
+
+```bash Specific Namespaces
+kubescape scan --include-namespaces <namespace-1>,<namespace-2>
+```
+
+```bash Exclude Namespaces
+kubescape scan --exclude-namespaces kube-system
+```
+
+```bash Critical Issues Only
+kubescape scan --severity CRITICAL
+```
+</CodeGroup>
+
+### Scanning YAML Files
+
+```bash
+# Scan local files
+kubescape scan *.yaml
+
+# Scan Git repository
+kubescape scan https://github.com/networknuts/kubernetes
+```
+
+### Generate PDF Report
+
+```bash
+kubescape scan framework nsa --format pdf --output scan-result.pdf
+```
+
+<Note>
+Kubescape can detect:
+- Misconfigurations
+- RBAC violations
+- Exposed secrets
+- Network policy gaps
+- Pod security issues
+- Compliance violations
+</Note>
+
+## Security Best Practices
+
+<Steps>
+  <Step title="Image Security">
+    - Use minimal base images (Alpine, distroless)
+    - Scan images before deployment with Trivy
+    - Use specific image tags, not `latest`
+    - Pull from trusted registries only
+  </Step>
+
+  <Step title="Pod Security">
+    - Run as non-root user
+    - Set read-only root filesystem
+    - Drop all capabilities
+    - Disable privilege escalation
+  </Step>
+
+  <Step title="Network Security">
+    - Implement NetworkPolicies
+    - Use TLS for all communication
+    - Restrict ingress/egress traffic
+    - Enable audit logging
+  </Step>
+
+  <Step title="Policy Enforcement">
+    - Deploy Kyverno policies for validation and mutation
+    - Enforce resource limits on all workloads
+    - Require labels for resource organization
+    - Implement Pod Security Standards
+  </Step>
+
+  <Step title="Continuous Scanning">
+    - Schedule regular cluster scans with Trivy
+    - Monitor compliance with Kubescape
+    - Set up alerts for policy violations
+    - Integrate scanning in CI/CD pipelines
+  </Step>
+</Steps>
+
+<Warning>
+Security is an ongoing process. Regularly update your security tools, review policies, and conduct security audits.
+</Warning>
+
+## Integration with CI/CD
+
+Integrate security scanning in your pipeline:
+
+```yaml .github/workflows/security-scan.yml
+name: Security Scan
+
+on: [push, pull_request]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Run Kubescape
+        run: |
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          kubescape scan *.yaml --format json --output results.json
+```
+
+## References
+
+- [Trivy Documentation](https://aquasecurity.github.io/trivy/)
+- [Kyverno Policies](https://github.com/kyverno/policies)
+- [Kubescape GitHub](https://github.com/kubescape/kubescape)

@@ -1,0 +1,320 @@
+---
+title: Velero Backup and Restore
+description: Backup and restore Kubernetes clusters using Velero with S3 storage
+---
+
+Velero is an open-source tool for backing up and restoring Kubernetes cluster resources and persistent volumes. It's essential for disaster recovery and cluster migration.
+
+## Prerequisites
+
+- Running Kubernetes cluster
+- AWS account with S3 access
+- AWS CLI installed and configured
+
+## Installing Velero Client
+
+<Steps>
+  <Step title="Download Velero">
+    ```bash
+    wget https://github.com/vmware-tanzu/velero/releases/download/v1.13.0/velero-v1.13.0-linux-amd64.tar.gz
+    ```
+  </Step>
+
+  <Step title="Extract Archive">
+    ```bash
+    tar -xvf velero-v1.13.0-linux-amd64.tar.gz
+    ```
+  </Step>
+
+  <Step title="Install Binary">
+    ```bash
+    cp velero-v1.13.0-linux-amd64/velero /usr/local/bin
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    velero --help
+    ```
+  </Step>
+</Steps>
+
+## AWS Configuration
+
+### Install and Configure AWS CLI
+
+```bash
+# Download AWS CLI
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+
+# Configure credentials
+aws configure
+```
+
+### Create S3 Bucket
+
+```bash
+BUCKET=<YOUR_BUCKET>
+REGION=<YOUR_REGION>
+
+aws s3api create-bucket \
+    --bucket $BUCKET \
+    --region $REGION \
+    --create-bucket-configuration LocationConstraint=$REGION
+```
+
+<Warning>
+Ensure you remove "block public access" settings from the S3 bucket for Velero to function properly.
+</Warning>
+
+## Setting Up IAM Permissions
+
+<Steps>
+  <Step title="Create IAM User">
+    ```bash
+    aws iam create-user --user-name velero
+    ```
+  </Step>
+
+  <Step title="Create Policy Document">
+    ```bash
+    cat > velero-policy.json <<EOF
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "ec2:DescribeVolumes",
+                    "ec2:DescribeSnapshots",
+                    "ec2:CreateTags",
+                    "ec2:CreateVolume",
+                    "ec2:CreateSnapshot",
+                    "ec2:DeleteSnapshot"
+                ],
+                "Resource": "*"
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:DeleteObject",
+                    "s3:PutObject",
+                    "s3:AbortMultipartUpload",
+                    "s3:ListMultipartUploadParts"
+                ],
+                "Resource": [
+                    "arn:aws:s3:::${BUCKET}/*"
+                ]
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket"
+                ],
+                "Resource": [
+                    "arn:aws:s3:::${BUCKET}"
+                ]
+            }
+        ]
+    }
+    EOF
+    ```
+  </Step>
+
+  <Step title="Attach Policy to User">
+    ```bash
+    aws iam put-user-policy \
+      --user-name velero \
+      --policy-name velero \
+      --policy-document file://velero-policy.json
+    ```
+  </Step>
+
+  <Step title="Create Access Key">
+    ```bash
+    aws iam create-access-key --user-name velero
+    ```
+
+    <Note>
+    Save the access key ID and secret access key from the output.
+    </Note>
+  </Step>
+</Steps>
+
+### Create Credentials File
+
+```bash
+cat > ~/credentials-velero <<EOF
+[default]
+aws_access_key_id=<AWS_ACCESS_KEY_ID>
+aws_secret_access_key=<AWS_SECRET_ACCESS_KEY>
+EOF
+```
+
+## Installing Velero Server
+
+```bash
+velero install \
+    --provider aws \
+    --plugins velero/velero-plugin-for-aws:v1.9.0 \
+    --bucket $BUCKET \
+    --backup-location-config region=$REGION \
+    --snapshot-location-config region=$REGION \
+    --secret-file ./credentials-velero
+```
+
+### Verify Installation
+
+```bash
+# Check Velero resources
+kubectl -n velero get all
+
+# Check Velero logs
+kubectl logs deployment/velero -n velero
+```
+
+## Backup Examples
+
+### Namespace Backup
+
+<Steps>
+  <Step title="Create Test Namespace">
+    ```bash
+    kubectl create namespace prod
+    # Deploy some applications
+    ```
+  </Step>
+
+  <Step title="Backup Namespace">
+    ```bash
+    velero backup create prod-backup --include-namespaces prod
+    ```
+  </Step>
+
+  <Step title="Simulate Disaster">
+    ```bash
+    kubectl delete ns prod
+    kubectl get ns
+    ```
+  </Step>
+
+  <Step title="Restore from Backup">
+    ```bash
+    velero restore create --from-backup prod-backup
+    ```
+  </Step>
+</Steps>
+
+### Entire Cluster Backup
+
+<CodeGroup>
+```bash Backup
+velero backup create <backup-name>
+```
+
+```bash Restore
+velero restore create --from-backup <backup-name>
+```
+</CodeGroup>
+
+### Label-Based Backup
+
+Backup resources based on labels:
+
+```bash
+velero backup create <backup-name> --selector <key>=<value>
+```
+
+## Scheduled Backups
+
+<Steps>
+  <Step title="Create Backup Schedule">
+    Create a daily backup at 5 AM using cron syntax:
+
+    ```bash
+    velero schedule create morning-daily --schedule="0 5 * * *"
+    ```
+  </Step>
+
+  <Step title="Trigger Manual Backup from Schedule">
+    ```bash
+    velero backup create --from-schedule morning-schedule
+    ```
+  </Step>
+</Steps>
+
+<Info>
+Scheduled backups use standard cron syntax:
+- `0 5 * * *` - Every day at 5:00 AM
+- `0 */6 * * *` - Every 6 hours
+- `0 0 * * 0` - Every Sunday at midnight
+</Info>
+
+## Managing Backups
+
+### List Backups
+
+```bash
+velero get backups
+```
+
+### Describe Backup
+
+```bash
+velero backup describe <backup-name>
+velero backup logs <backup-name>
+```
+
+### Delete Backups
+
+<CodeGroup>
+```bash Delete Custom Resource Only
+# Deletes the backup CR but keeps data in S3
+kubectl delete backup <backupName> -n velero
+```
+
+```bash Delete Backup and Data
+# Deletes the backup CR and all data from S3
+velero backup delete <backupName>
+```
+</CodeGroup>
+
+<Warning>
+Use `velero backup delete` to completely remove backups from both Kubernetes and object storage. Using `kubectl delete` only removes the Kubernetes resource.
+</Warning>
+
+## Backup to Different Cluster
+
+Velero supports backing up from one cluster and restoring to another:
+
+1. Install Velero on both clusters pointing to the same S3 bucket
+2. Take backup on source cluster
+3. Run restore on target cluster
+
+```bash
+# On target cluster
+velero restore create --from-backup prod-backup
+```
+
+## Uninstalling Velero
+
+```bash
+kubectl delete namespace/velero clusterrolebinding/velero
+kubectl delete crds -l component=velero
+```
+
+## Best Practices
+
+- Schedule regular backups for critical namespaces
+- Test restore procedures regularly
+- Monitor backup status and set up alerts
+- Use retention policies to manage storage costs
+- Keep Velero plugins updated
+- Document your backup and restore procedures
+
+<Note>
+Velero backups are stored in S3, making them resilient to cluster failures. Always verify backups appear in your S3 bucket after creation.
+</Note>

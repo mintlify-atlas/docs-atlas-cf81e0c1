@@ -1,0 +1,293 @@
+---
+title: Kustomize
+description: Use Kustomize for template-free configuration management across multiple environments
+---
+
+Kustomize provides a declarative approach to customize Kubernetes manifests without templates. It allows you to maintain a base configuration and create environment-specific overlays.
+
+## Installing Kustomize
+
+<Steps>
+  <Step title="Download Kustomize">
+    Use the official installation script:
+
+    ```bash
+    curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+    ```
+  </Step>
+
+  <Step title="Install to System Path">
+    Move Kustomize to a directory in your PATH:
+
+    ```bash
+    sudo install -o root -g root -m 0755 kustomize /usr/local/bin/kustomize
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    Check the installed version:
+
+    ```bash
+    kustomize version
+    ```
+  </Step>
+</Steps>
+
+## Directory Structure
+
+Create an organized directory structure for base and overlays:
+
+```bash
+mkdir -p ~/myapp/{base,overlays/{dev,prod}}
+```
+
+Your structure should look like:
+
+```
+myapp/
+├── base/
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── kustomization.yaml
+└── overlays/
+    ├── dev/
+    │   ├── kustomization.yaml
+    │   ├── deployment-dev.yaml
+    │   └── service-dev.yaml
+    └── prod/
+        ├── kustomization.yaml
+        ├── deployment-prod.yaml
+        └── service-prod.yaml
+```
+
+## Creating Base Configuration
+
+### Base Deployment
+
+```yaml ~/myapp/base/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.14.2
+        ports:
+        - containerPort: 80
+```
+
+### Base Service
+
+```yaml ~/myapp/base/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+spec:
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+```
+
+### Base Kustomization
+
+```yaml ~/myapp/base/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- deployment.yaml
+- service.yaml
+
+commonLabels:
+  company: networknuts
+
+namespace: default
+namePrefix: bike-
+nameSuffix: -dev
+
+commonAnnotations:
+  branch: master
+```
+
+## Development Overlay
+
+<Steps>
+  <Step title="Create Namespace">
+    ```yaml ~/myapp/overlays/dev/namespace.yaml
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: dev
+    ```
+  </Step>
+
+  <Step title="Create Deployment Patch">
+    ```yaml ~/myapp/overlays/dev/deployment-dev.yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: web-deployment
+    spec:
+      replicas: 3
+      template:
+        spec:
+          containers:
+          - name: nginx
+            resources:
+              limits:
+                cpu: "200m"
+                memory: "256Mi"
+              requests:
+                cpu: "100m"
+                memory: "128Mi"
+    ```
+  </Step>
+
+  <Step title="Create Service Patch">
+    ```yaml ~/myapp/overlays/dev/service-dev.yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: web-service
+    spec:
+      type: NodePort
+    ```
+  </Step>
+
+  <Step title="Create Dev Kustomization">
+    ```yaml ~/myapp/overlays/dev/kustomization.yaml
+    apiVersion: kustomize.config.k8s.io/v1beta1
+    kind: Kustomization
+
+    namespace: dev
+    namePrefix: dev-
+
+    resources:
+    - ../../base
+    - namespace.yaml
+
+    patches:
+    - path: deployment-dev.yaml
+    - path: service-dev.yaml
+    ```
+  </Step>
+</Steps>
+
+## Production Overlay
+
+<CodeGroup>
+```yaml namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+```
+
+```yaml deployment-prod.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-deployment
+spec:
+  replicas: 4
+  template:
+    spec:
+      containers:
+      - name: nginx
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+```
+
+```yaml service-prod.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+spec:
+  type: NodePort
+```
+
+```yaml kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: prod
+namePrefix: prod-
+
+resources:
+- ../../base
+- namespace.yaml
+
+patches:
+- path: deployment-prod.yaml
+- path: service-prod.yaml
+```
+</CodeGroup>
+
+## Building and Applying
+
+### Preview Changes
+
+Build and preview the manifests before applying:
+
+```bash
+cd ~/myapp
+kustomize build overlays/dev
+kustomize build overlays/prod
+```
+
+### Apply to Cluster
+
+<CodeGroup>
+```bash Development
+kubectl apply -k overlays/dev
+```
+
+```bash Production
+kubectl apply -k overlays/prod
+```
+</CodeGroup>
+
+<Info>
+Kubectl has built-in Kustomize support. You can use `kubectl apply -k` instead of building first with the kustomize binary.
+</Info>
+
+## Key Features
+
+<Accordion title="Patches">
+Kustomize supports strategic merge patches and JSON patches to modify resources without duplicating the entire configuration.
+</Accordion>
+
+<Accordion title="Name Prefixes and Suffixes">
+Automatically add prefixes or suffixes to resource names to distinguish between environments.
+</Accordion>
+
+<Accordion title="Common Labels and Annotations">
+Apply labels and annotations across all resources in a single place.
+</Accordion>
+
+<Accordion title="ConfigMap and Secret Generators">
+Generate ConfigMaps and Secrets from files or literals with automatic hash suffixes for rolling updates.
+</Accordion>
+
+<Note>
+Kustomize promotes a purely declarative approach. There's no templating language to learn - just YAML patches and overlays.
+</Note>

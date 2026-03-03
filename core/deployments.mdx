@@ -1,0 +1,353 @@
+---
+title: Deployments
+description: Manage application deployments, rolling updates, and horizontal autoscaling with Kubernetes Deployments
+---
+
+# Deployments
+
+Deployments provide declarative updates for Pods and ReplicaSets. They enable you to describe the desired state of your application, and the Deployment controller changes the actual state to match at a controlled rate.
+
+## Basic Deployment
+
+Here's a complete Deployment with rolling update strategy:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nnwebserver
+spec:
+  selector:
+    matchLabels:
+      run: nnwebserver
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        run: nnwebserver
+    spec:
+      containers:
+        - name: nnwebserver
+          image: lovelearnlinux/webserver:v2
+          livenessProbe:
+            exec:
+              command:
+              - cat 
+              - /var/www/html/index.html
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          ports:
+            - containerPort: 80
+              name: http
+              protocol: TCP
+```
+
+## Deployment Components
+
+<Accordion title="Understanding Deployment Fields">
+  - **`selector`**: Defines how the Deployment finds Pods to manage
+  - **`replicas`**: Number of Pod copies to maintain
+  - **`strategy`**: How to replace old Pods with new ones
+  - **`template`**: Pod template used to create new Pods
+  - **`matchLabels`**: Labels that must match for the Deployment to manage the Pod
+</Accordion>
+
+## Rolling Update Strategy
+
+Rolling updates allow you to update Pods with zero downtime.
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1        # Maximum number of Pods above desired count
+    maxUnavailable: 0  # Maximum number of Pods that can be unavailable
+```
+
+<Tabs>
+  <Tab title="maxSurge">
+    Specifies the maximum number of Pods that can be created above the desired replica count during an update.
+
+    - **Value: 1**: Can temporarily have `replicas + 1` Pods
+    - **Value: 25%**: Can temporarily have 25% more Pods than desired
+    
+    Higher values speed up rollouts but use more resources.
+  </Tab>
+
+  <Tab title="maxUnavailable">
+    Specifies the maximum number of Pods that can be unavailable during the update.
+
+    - **Value: 0**: Ensures all desired Pods are always available
+    - **Value: 1**: Allows one Pod to be unavailable during updates
+    - **Value: 25%**: Allows 25% of Pods to be unavailable
+
+    Setting to 0 ensures zero downtime but slows rollouts.
+  </Tab>
+</Tabs>
+
+<Note>
+  You cannot set both `maxSurge` and `maxUnavailable` to 0.
+</Note>
+
+## Managing Deployments
+
+### Create and Inspect
+
+```bash
+# Create deployment
+kubectl create -f deployment-one.yml
+
+# View deployments
+kubectl get deployment
+
+# Describe deployment
+kubectl describe deployment nnwebserver
+
+# View ReplicaSets created by deployment
+kubectl get rs --selector=run=nnwebserver
+```
+
+### Scaling
+
+```bash
+# Scale deployment
+kubectl scale deployment nnwebserver --replicas=3
+
+# Verify scaling
+kubectl get deployment nnwebserver
+```
+
+<Warning>
+  If you manually scale a ReplicaSet managed by a Deployment, the Deployment controller will reset it to match the Deployment's replica count.
+</Warning>
+
+### Rollout Management
+
+```bash
+# Check rollout status
+kubectl rollout status deployment nnwebserver
+
+# Pause rollout (useful for canary deployments)
+kubectl rollout pause deployment nnwebserver
+
+# Resume rollout
+kubectl rollout resume deployment nnwebserver
+
+# View rollout history
+kubectl rollout history deployment nnwebserver
+
+# Rollback to previous version
+kubectl rollout undo deployment nnwebserver
+
+# Rollback to specific revision
+kubectl rollout undo deployment nnwebserver --to-revision=2
+```
+
+## Updating Deployments
+
+To update a Deployment, modify the YAML and apply:
+
+```bash
+kubectl apply -f deployment-one.yml
+```
+
+You can also update the image directly:
+
+```bash
+kubectl set image deployment/nnwebserver nnwebserver=lovelearnlinux/webserver:v2
+```
+
+<Tip>
+  Add annotations to track change reasons:
+  ```yaml
+  template:
+    metadata:
+      annotations:
+        kubernetes.io/change-cause: "updated to new version"
+  ```
+</Tip>
+
+## Horizontal Pod Autoscaler (HPA)
+
+HPA automatically scales the number of Pods based on observed metrics like CPU utilization.
+
+### Deployment for Autoscaling
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-autoscaler
+spec:
+  selector:
+    matchLabels:
+      run: k8s-autoscaler
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        run: k8s-autoscaler
+    spec:
+      containers:
+      - name: k8s-autoscaler
+        image: lovelearnlinux/webserver:v1
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 200m
+            memory: 128Mi
+```
+
+### HPA Configuration (v2)
+
+```yaml
+apiVersion: autoscaling/v2beta2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 66
+```
+
+<CodeGroup>
+```yaml CPU-based
+metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 66  # Scale when CPU > 66%
+```
+
+```yaml Memory-based
+metrics:
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80  # Scale when memory > 80%
+```
+
+```yaml Multiple metrics
+metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 66
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+</CodeGroup>
+
+### HPA Management
+
+```bash
+# Create HPA
+kubectl create -f hpa-for-deployment-v2.yaml
+
+# View HPA status
+kubectl get hpa
+
+# Describe HPA
+kubectl describe hpa my-app
+
+# Quick create HPA via CLI
+kubectl autoscale deployment my-app --cpu-percent=66 --min=1 --max=5
+```
+
+<Note>
+  **Prerequisites for HPA**:
+  - Metrics Server must be installed in the cluster
+  - Pods must have resource requests defined
+  - HPA checks metrics every 15 seconds by default
+</Note>
+
+## Deployment Strategies
+
+<Tabs>
+  <Tab title="RollingUpdate">
+    Default strategy. Gradually replaces old Pods with new ones.
+
+    **Pros**: Zero downtime, gradual rollout  
+    **Cons**: Both versions run simultaneously
+
+    ```yaml
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+    ```
+  </Tab>
+
+  <Tab title="Recreate">
+    Terminates all existing Pods before creating new ones.
+
+    **Pros**: Clean cutover, no version mixing  
+    **Cons**: Downtime during update
+
+    ```yaml
+    strategy:
+      type: Recreate
+    ```
+  </Tab>
+</Tabs>
+
+## Best Practices
+
+- Always define resource requests and limits for HPA to work correctly
+- Set `maxUnavailable: 0` for zero-downtime deployments
+- Use `minReadySeconds` to ensure Pods are stable before marking ready
+- Track changes with annotations for better rollout history
+- Test updates in staging before production
+- Monitor rollout status and have rollback plans ready
+- Use HPA for workloads with variable traffic patterns
+- Set conservative autoscaling thresholds to avoid flapping
+
+## Cleanup
+
+```bash
+# Delete deployment (also deletes managed ReplicaSets and Pods)
+kubectl delete deployment nnwebserver
+
+# Delete HPA
+kubectl delete hpa my-app
+```

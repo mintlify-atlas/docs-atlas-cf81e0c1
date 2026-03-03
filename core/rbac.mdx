@@ -1,0 +1,463 @@
+---
+title: RBAC (Role-Based Access Control)
+description: Secure your cluster with Roles, ClusterRoles, RoleBindings, and ServiceAccounts
+---
+
+# RBAC (Role-Based Access Control)
+
+Kubernetes RBAC provides fine-grained access control to cluster resources. It allows you to define who can perform what actions on which resources.
+
+## RBAC Components
+
+<Accordion title="Understanding RBAC Objects">
+  **Role**: Defines permissions within a namespace
+
+  **ClusterRole**: Defines permissions cluster-wide
+
+  **RoleBinding**: Grants permissions defined in a Role to users/groups within a namespace
+
+  **ClusterRoleBinding**: Grants permissions defined in a ClusterRole cluster-wide
+
+  **ServiceAccount**: Identity for processes running in Pods
+</Accordion>
+
+## Roles
+
+Roles define what actions can be performed on resources within a namespace.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: dev
+  name: limited-pods
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  resourceNames: ["pod-a", "pod-b"]  # Specific resource names
+  verbs: ["update", "get", "list"]
+```
+
+### Role Rules
+
+<CodeGroup>
+```yaml Basic Resource Access
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+```
+
+```yaml All Resources in API Group
+rules:
+- apiGroups: ["apps"]
+  resources: ["*"]  # All resources
+  verbs: ["get", "list"]
+```
+
+```yaml Specific Resource Names
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  resourceNames: ["my-pod"]
+  verbs: ["get", "delete"]
+```
+
+```yaml Subresources
+rules:
+- apiGroups: [""]
+  resources: ["pods/log"]  # Pod logs
+  verbs: ["get"]
+```
+</CodeGroup>
+
+### Common Verbs
+
+- **`get`**: Read a single resource
+- **`list`**: Read multiple resources
+- **`watch`**: Watch for changes
+- **`create`**: Create new resources
+- **`update`**: Modify existing resources
+- **`patch`**: Partially modify resources
+- **`delete`**: Delete resources
+- **`deletecollection`**: Delete multiple resources
+
+## ClusterRoles
+
+ClusterRoles define permissions that apply cluster-wide or to non-namespaced resources.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-reader
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+```
+
+<Note>
+  ClusterRoles can be used with RoleBindings (namespace-scoped) or ClusterRoleBindings (cluster-wide).
+</Note>
+
+## RoleBindings
+
+RoleBindings grant permissions to users, groups, or ServiceAccounts within a namespace.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods
+  namespace: dev
+subjects:
+- kind: User
+  name: jane
+  apiGroup: rbac.authorization.k8s.io
+- kind: ServiceAccount
+  name: my-sa
+  namespace: dev
+roleRef:
+  kind: Role
+  name: limited-pods
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### Subject Types
+
+<Tabs>
+  <Tab title="User">
+    Individual user (usually from authentication system).
+
+    ```yaml
+    subjects:
+    - kind: User
+      name: alice@example.com
+      apiGroup: rbac.authorization.k8s.io
+    ```
+  </Tab>
+
+  <Tab title="Group">
+    Group of users.
+
+    ```yaml
+    subjects:
+    - kind: Group
+      name: developers
+      apiGroup: rbac.authorization.k8s.io
+    ```
+  </Tab>
+
+  <Tab title="ServiceAccount">
+    Identity for Pods.
+
+    ```yaml
+    subjects:
+    - kind: ServiceAccount
+      name: my-service-account
+      namespace: default
+    ```
+  </Tab>
+</Tabs>
+
+## ClusterRoleBindings
+
+ClusterRoleBindings grant permissions cluster-wide.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: read-nodes
+subjects:
+- kind: User
+  name: alice
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: node-reader
+  apiGroup: rbac.authorization.k8s.io
+```
+
+## ServiceAccounts
+
+ServiceAccounts provide identities for processes running in Pods.
+
+### Creating a ServiceAccount
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: my-service-account
+  namespace: default
+```
+
+```bash
+# Or via CLI
+kubectl create serviceaccount my-service-account
+```
+
+### Using ServiceAccounts in Pods
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+spec:
+  serviceAccountName: my-service-account
+  containers:
+  - name: app
+    image: myapp:latest
+```
+
+<Note>
+  If not specified, Pods use the `default` ServiceAccount in their namespace.
+</Note>
+
+### Granting Permissions to ServiceAccounts
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sa-pod-reader
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: my-service-account
+  namespace: default
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+```
+
+## Testing Permissions
+
+Use `kubectl auth can-i` to test whether an action is allowed:
+
+```bash
+# Check if current user can create deployments
+kubectl auth can-i create deployments
+
+# Check if specific user can delete pods
+kubectl auth can-i delete pods --as=jane
+
+# Check if ServiceAccount can list secrets
+kubectl auth can-i list secrets \
+  --as=system:serviceaccount:default:my-service-account \
+  -n default
+
+# Check all permissions for current user
+kubectl auth can-i --list
+```
+
+<Tip>
+  The `--as` flag is useful for testing permissions before granting them to users or ServiceAccounts.
+</Tip>
+
+## Creating Additional Cluster Admins
+
+Here's the process to create a new cluster administrator:
+
+### Step 1: User Generates Keys
+
+```bash
+# User generates private key and CSR
+openssl genrsa -out alok.key 2048
+openssl req -new -key alok.key -subj "/CN=alok/O=system:masters" -out alok.csr
+```
+
+### Step 2: Admin Signs Certificate
+
+```bash
+# Cluster admin signs the CSR
+openssl x509 -req -in alok.csr \
+  -CA /etc/kubernetes/pki/ca.crt \
+  -CAkey /etc/kubernetes/pki/ca.key \
+  -out alok.crt
+```
+
+### Step 3: Create ClusterRoleBinding
+
+```bash
+# Bind user to cluster-admin role
+kubectl create clusterrolebinding alok-admin \
+  --clusterrole=cluster-admin \
+  --user=alok
+
+# Verify
+kubectl describe clusterrolebinding alok-admin
+```
+
+### Step 4: User Creates Kubeconfig
+
+```yaml
+apiVersion: v1
+kind: Config
+current-context: alok@kubernetes
+
+clusters:
+- cluster:
+    certificate-authority-data: <base64-encoded-ca.crt>
+    server: https://<master-ip>:6443
+  name: kubernetes
+
+contexts:
+- context:
+    cluster: kubernetes
+    user: alok
+  name: alok@kubernetes
+
+users:
+- name: alok
+  user:
+    client-certificate: /home/alok/alok.crt
+    client-key: /home/alok/alok.key
+```
+
+```bash
+# Get base64-encoded CA certificate
+cat /etc/kubernetes/pki/ca.crt | base64 -w 0
+```
+
+## Default ClusterRoles
+
+Kubernetes includes several default ClusterRoles:
+
+<Accordion title="Built-in ClusterRoles">
+  **`cluster-admin`**: Full cluster access
+
+  **`admin`**: Full access within a namespace
+
+  **`edit`**: Read/write access to most resources in a namespace
+
+  **`view`**: Read-only access to most resources in a namespace
+
+  **`system:*`**: System component roles (kube-proxy, kubelet, etc.)
+</Accordion>
+
+```bash
+# View default ClusterRoles
+kubectl get clusterroles
+
+# Describe cluster-admin role
+kubectl describe clusterrole cluster-admin
+```
+
+## Common RBAC Patterns
+
+### Read-Only User
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: readonly-user
+  namespace: production
+subjects:
+- kind: User
+  name: viewer@example.com
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view  # Built-in view role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### Developer Access
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developers
+  namespace: development
+subjects:
+- kind: Group
+  name: developers
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: edit  # Built-in edit role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### CI/CD Pipeline ServiceAccount
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-deployer
+  namespace: production
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployer
+  namespace: production
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ci-deployer-binding
+  namespace: production
+subjects:
+- kind: ServiceAccount
+  name: ci-deployer
+  namespace: production
+roleRef:
+  kind: Role
+  name: deployer
+  apiGroup: rbac.authorization.k8s.io
+```
+
+## RBAC Management Commands
+
+```bash
+# List Roles
+kubectl get roles --all-namespaces
+
+# List ClusterRoles
+kubectl get clusterroles
+
+# List RoleBindings
+kubectl get rolebindings --all-namespaces
+
+# List ClusterRoleBindings
+kubectl get clusterrolebindings
+
+# List ServiceAccounts
+kubectl get serviceaccounts
+
+# Describe Role
+kubectl describe role limited-pods -n dev
+
+# Delete RoleBinding
+kubectl delete rolebinding read-pods -n dev
+```
+
+## Best Practices
+
+- Follow the principle of least privilege: grant minimum necessary permissions
+- Use namespaced Roles instead of ClusterRoles when possible
+- Create ServiceAccounts for applications, not for human users
+- Regularly audit RBAC permissions with `kubectl auth can-i --list`
+- Use groups instead of individual users for easier management
+- Avoid granting cluster-admin unless absolutely necessary
+- Test permissions before granting them using `--as` flag
+- Document who has access to what and why
+- Automate ServiceAccount creation as part of application deployment
+- Use dedicated ServiceAccounts for CI/CD pipelines
+- Regularly review and revoke unused permissions

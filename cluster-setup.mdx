@@ -1,0 +1,397 @@
+---
+title: Cluster setup
+description: Complete guide to setting up a production-ready Kubernetes cluster using kubeadm
+---
+
+# Cluster setup
+
+This guide walks you through setting up a complete Kubernetes cluster using kubeadm. You'll configure a master node and worker nodes with all required components.
+
+## Prerequisites
+
+- Ubuntu 18.04 or later on all nodes
+- At least 2GB RAM per machine
+- 2 CPUs or more on the master node
+- Network connectivity between all nodes
+- Sudo privileges on all machines
+
+<Warning>
+  Ensure swap is disabled on all nodes. You'll need to comment out the swap line in `/etc/fstab` to make this change persistent.
+</Warning>
+
+## Architecture overview
+
+A typical Kubernetes cluster consists of:
+
+- **Master node**: Runs the control plane components (API server, scheduler, controller manager)
+- **Worker nodes**: Run your containerized applications
+- **Network plugin**: Enables pod-to-pod communication (we'll use Calico)
+
+## Installation methods
+
+We provide three approaches for cluster setup:
+
+1. **Basic cluster setup**: Common setup for all nodes
+2. **Master node setup**: Automated master initialization
+3. **Worker node setup**: Automated worker configuration
+
+---
+
+## Method 1: Basic cluster setup
+
+This script installs all required packages on every node (both master and worker).
+
+<Steps>
+  <Step title="Enable kernel modules for networking">
+    The bridge netfilter module enables iptables to see bridged traffic, which is essential for Kubernetes networking.
+
+    ```bash cluster-setup.sh
+    cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+    br_netfilter
+    EOF
+
+    cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+    net.bridge.bridge-nf-call-ip6tables = 1
+    net.bridge.bridge-nf-call-iptables = 1
+    EOF
+
+    sudo sysctl --system
+    ```
+
+    <Info>
+      These settings ensure that network traffic is properly routed through iptables for filtering and port forwarding.
+    </Info>
+  </Step>
+
+  <Step title="Install Kubernetes components and Docker">
+    Add the Kubernetes repository and install kubelet, kubeadm, kubectl, and Docker.
+
+    ```bash cluster-setup.sh
+    sudo apt-get update && sudo apt-get install -y apt-transport-https curl
+    curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+    
+    cat <<EOF | sudo tee /etc/apt/sources.list.d/kubernetes.list
+    deb https://apt.kubernetes.io/ kubernetes-xenial main
+    EOF
+    
+    sudo apt-get update
+    sudo apt-get install -y kubelet kubeadm kubectl docker.io
+    sudo apt-mark hold kubelet kubeadm kubectl
+    sudo systemctl start docker; systemctl enable docker
+    ```
+
+    <Note>
+      The `apt-mark hold` command prevents these packages from being automatically updated, which could break your cluster.
+    </Note>
+  </Step>
+
+  <Step title="Initialize the master node">
+    On your designated master node, run:
+
+    ```bash
+    kubeadm init --apiserver-advertise-address 10.0.0.100 --ignore-preflight-errors all
+    ```
+
+    Replace `10.0.0.100` with your master node's IP address.
+
+    <Warning>
+      The `--ignore-preflight-errors all` flag bypasses preflight checks. In production, address all errors instead of ignoring them.
+    </Warning>
+  </Step>
+
+  <Step title="Configure kubectl access">
+    Set up the kubeconfig file to interact with your cluster:
+
+    ```bash
+    mkdir -p $HOME/.kube
+    sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+    sudo chown $(id -u):$(id -g) $HOME/.kube/config
+    ```
+  </Step>
+
+  <Step title="Install the Calico network plugin">
+    Deploy Calico for pod networking:
+
+    ```bash
+    curl https://docs.projectcalico.org/manifests/calico.yaml -O
+    kubectl apply -f calico.yaml
+    ```
+
+    <Info>
+      Calico provides networking and network policy for Kubernetes. Without it, pods cannot communicate with each other.
+    </Info>
+  </Step>
+
+  <Step title="Join worker nodes to the cluster">
+    Generate the join command on the master:
+
+    ```bash
+    kubeadm token create --print-join-command
+    ```
+
+    Copy the output and run it on each worker node. It will look like:
+
+    ```bash
+    kubeadm join 10.0.0.100:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Method 2: Automated master node setup
+
+This script automates the complete master node installation and initialization.
+
+<CodeGroup>
+```bash k8s-master.sh
+#!/bin/bash
+# Kubernetes Master Node Setup for v1.20.10
+
+# Enable bridge networking
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+br_netfilter
+EOF
+
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+EOF
+
+sysctl --system
+
+# Install Kubernetes components
+apt-get update
+apt-get install -y apt-transport-https ca-certificates curl
+
+sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+apt-get update
+apt-get install -y kubelet=1.20.10-00 kubeadm=1.20.10-00 kubectl=1.20.10-00 docker.io
+apt-mark hold kubelet kubeadm kubectl
+
+# Install and start SSH
+sudo apt install -y openssh-server
+systemctl start sshd
+
+# Initialize the cluster
+sudo kubeadm init --pod-network-cidr 192.168.0.0/16 --apiserver-advertise-address 10.0.0.100
+
+sleep 5
+
+# Configure kubectl
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+# Install Calico
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+
+sleep 40
+kubectl get node
+```
+</CodeGroup>
+
+<Steps>
+  <Step title="Download and run the master script">
+    ```bash
+    chmod +x k8s-master.sh
+    sudo ./k8s-master.sh
+    ```
+
+    The script will:
+    - Configure kernel networking modules
+    - Install Kubernetes v1.20.10 and Docker
+    - Initialize the cluster with Calico network plugin
+    - Set up kubectl access automatically
+  </Step>
+
+  <Step title="Verify the master node is ready">
+    After the script completes (wait ~40 seconds for Calico to initialize):
+
+    ```bash
+    kubectl get node
+    ```
+
+    You should see your master node with status `Ready`.
+  </Step>
+
+  <Step title="Don't forget to disable swap">
+    ```bash
+    sudo swapoff -a
+    sudo sed -i '/ swap / s/^/#/' /etc/fstab
+    ```
+
+    <Warning>
+      Kubernetes requires swap to be disabled. Comment out swap entries in `/etc/fstab` to make this persistent across reboots.
+    </Warning>
+  </Step>
+</Steps>
+
+---
+
+## Method 3: Automated worker node setup
+
+This script prepares worker nodes to join the cluster.
+
+<CodeGroup>
+```bash k8s-node.sh
+#!/bin/bash
+# Kubernetes Worker Node Setup for v1.20.10
+
+# Enable bridge networking
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+br_netfilter
+EOF
+
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+EOF
+
+sudo sysctl --system
+
+# Install dependencies
+sudo apt-get install ca-certificates curl gnupg lsb-release -y
+
+# Install Kubernetes components
+apt-get update
+sudo apt-get install -y apt-transport-https ca-certificates curl
+
+sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+sudo echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+sudo apt-get update
+sudo apt-get install -y kubelet=1.20.10-00 kubeadm=1.20.10-00 kubectl=1.20.10-00 docker.io
+sudo apt-mark hold kubelet kubeadm kubectl
+
+# Install and start SSH
+sudo apt install -y openssh-server
+sudo systemctl start sshd
+```
+</CodeGroup>
+
+<Steps>
+  <Step title="Run the worker node script">
+    On each worker node:
+
+    ```bash
+    chmod +x k8s-node.sh
+    sudo ./k8s-node.sh
+    ```
+  </Step>
+
+  <Step title="Get the join command from master">
+    On the master node, run:
+
+    ```bash
+    kubeadm token create --print-join-command
+    ```
+
+    Copy the entire output.
+  </Step>
+
+  <Step title="Join the worker to the cluster">
+    On the worker node, paste and execute the join command:
+
+    ```bash
+    sudo kubeadm join 10.0.0.100:6443 --token <token> \
+      --discovery-token-ca-cert-hash sha256:<hash>
+    ```
+  </Step>
+
+  <Step title="Verify the node joined successfully">
+    On the master node:
+
+    ```bash
+    kubectl get nodes
+    ```
+
+    Your worker node should appear in the list. It may take a minute to reach `Ready` status.
+  </Step>
+</Steps>
+
+---
+
+## Network configuration
+
+The cluster uses Calico with the pod network CIDR `192.168.0.0/16`. This network range is used for pod-to-pod communication.
+
+<Info>
+  If you need to use a different network plugin or CIDR range, specify it during `kubeadm init` with the `--pod-network-cidr` flag and install the corresponding network plugin.
+</Info>
+
+### Key network settings
+
+- **API Server**: Advertised on `10.0.0.100:6443` (adjust to your master node IP)
+- **Pod Network CIDR**: `192.168.0.0/16` (Calico default)
+- **Service CIDR**: `10.96.0.0/12` (kubeadm default)
+
+## Verification
+
+After completing the setup, verify your cluster:
+
+```bash
+# Check node status
+kubectl get nodes
+
+# Check system pods
+kubectl get pods -n kube-system
+
+# Check cluster info
+kubectl cluster-info
+```
+
+All nodes should show `Ready` status, and all system pods should be `Running`.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Node not reaching Ready status">
+    Check the kubelet logs:
+    ```bash
+    sudo journalctl -u kubelet -f
+    ```
+    
+    Ensure the network plugin is running:
+    ```bash
+    kubectl get pods -n kube-system | grep calico
+    ```
+  </Accordion>
+
+  <Accordion title="Pods can't communicate">
+    Verify Calico is running:
+    ```bash
+    kubectl get pods -n kube-system -l k8s-app=calico-node
+    ```
+    
+    Check bridge networking is enabled:
+    ```bash
+    lsmod | grep br_netfilter
+    ```
+  </Accordion>
+
+  <Accordion title="Worker node join fails">
+    Ensure:
+    - The token hasn't expired (tokens are valid for 24 hours)
+    - Network connectivity exists between nodes
+    - The master node's API server is accessible on port 6443
+    
+    Generate a new token:
+    ```bash
+    kubeadm token create --print-join-command
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+With your cluster running:
+
+- Deploy your first application
+- Configure persistent storage
+- Set up monitoring and logging
+- Implement RBAC and security policies

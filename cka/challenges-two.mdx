@@ -1,0 +1,441 @@
+---
+title: "CKA Practice Challenges - Set Two"
+description: "Second set of hands-on practice tasks to prepare for the CKA exam"
+---
+
+## Overview
+
+This challenge set contains 10 practical tasks focused on core Kubernetes concepts including scheduling, workloads, services, RBAC, and storage. These tasks are essential for CKA exam preparation.
+
+<Note>
+  Complete these challenges in order. Each builds on fundamental Kubernetes skills you'll need in the exam.
+</Note>
+
+---
+
+## Task 1: Scheduling - Guaranteed QoS
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Deploy and modify a pod with Guaranteed Quality of Service.
+
+<Steps>
+  <Step title="Create pod with Guaranteed QoS">
+    Deploy pod named `heavy-pod`:
+    - CPU request: `50m`
+    - CPU limit: `50m`
+    - Memory request: `50Mi`
+    - Memory limit: `50Mi`
+  </Step>
+  
+  <Step title="Verify running state">
+    Ensure the pod is in **Running** state
+  </Step>
+  
+  <Step title="Edit resources">
+    Update the pod's resources to:
+    - CPU: `100m` (both request and limit)
+    - Memory: `100Mi` (both request and limit)
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- QoS class configuration
+- Resource requests and limits
+- Pod editing and recreation
+</Accordion>
+
+<Tip>
+  For Guaranteed QoS, requests must equal limits for both CPU and memory. Remember that pods cannot be edited in place for resource changes - you'll need to delete and recreate.
+</Tip>
+
+---
+
+## Task 2: Workload & Scheduling - Deployment Revisions
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Analyze deployment revision history to extract specific information.
+
+**Scenario:**
+The deployment `video-app` has undergone several rolling updates and rollbacks.
+
+**Tasks:**
+1. Find the total number of revisions
+2. Extract the image name used in the 3rd revision
+3. Record the information in file `app-file.txt` using format:
+   ```
+   REVISION_TOTAL_COUNT,IMAGE_NAME
+   ```
+
+**Example output:**
+```
+5,nginx:1.19.0
+```
+
+**Skills Tested:**
+- Deployment revision history
+- Rollout commands
+- File output formatting
+</Accordion>
+
+<Tip>
+  Use `kubectl rollout history deployment video-app` to view revisions. Add `--revision=N` to see details of a specific revision.
+</Tip>
+
+---
+
+## Task 3: Pod & Service Web App
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Create a complete web application with pod, service, and test connectivity.
+
+**Pod:** `app-pod`
+- Container name: `app-container`
+- Image: `httpd:latest`
+- Port: `80`
+- Label: `app=app-lab`
+
+**Service:** `app-svc`
+- Type: `ClusterIP`
+- Port: `80`
+- Selector: Matches `app-pod`
+
+**Testing:**
+1. Use `kubectl port-forward` to map local port to the Pod
+2. Use `curl` to verify the app returns: `It works!`
+
+**Skills Tested:**
+- Pod creation with labels
+- Service configuration and selectors
+- Port forwarding
+- Service connectivity testing
+</Accordion>
+
+<Warning>
+  Ensure the service selector matches the pod label exactly. Case sensitivity matters.
+</Warning>
+
+---
+
+## Task 4: ConfigMap - Basic Creation
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Create a ConfigMap with literal key-value data.
+
+**ConfigMap:** `creds`
+- Key: `username`
+- Value: `batman`
+
+**Skills Tested:**
+- ConfigMap creation from literal values
+- Imperative command usage
+</Accordion>
+
+<Tip>
+  Use `kubectl create configmap` with the `--from-literal` flag for quick creation.
+</Tip>
+
+---
+
+## Task 5: ConfigMap & Deployment Integration
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Integrate a ConfigMap as environment variables in an existing deployment.
+
+**Scenario:**
+Deployment `webapp-deployment` needs dynamic environment variable control.
+
+<Steps>
+  <Step title="Create ConfigMap">
+    ConfigMap name: `webapp-deployment-config-map`
+    ```bash
+    APPLICATION=web-app
+    ```
+  </Step>
+  
+  <Step title="Update deployment">
+    Modify `webapp-deployment` to inject the ConfigMap data as an environment variable
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- ConfigMap creation
+- Environment variable injection
+- Deployment modification
+- ConfigMap references
+</Accordion>
+
+---
+
+## Task 6: Complete Application Stack with HPA
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Create a complete namespace with deployment, service, and autoscaling configured.
+
+**Namespace:** `test`
+
+**Deployment:** `testing-app`
+- Namespace: `test`
+- Replicas: `3`
+- Labels: `app=testing-app`
+- Node selector: `cpu=i5`
+- QoS: `Burstable` (set requests lower than limits)
+- Image: `nginx:latest`
+- Container port: `80/tcp`
+
+**Service:** `testing-app-svc`
+- Type: `ClusterIP`
+- Port: `80`
+- Selector: `app=testing-app`
+
+**HorizontalPodAutoscaler:** `testing-app-hpa`
+- Min pods: `3`
+- Max pods: `10`
+- CPU utilization target: `20%`
+- Scale-down behavior:
+  - Stabilization window: `30s`
+  - Max pods removed per interval: 1 pod per 20s
+- Scale-up behavior:
+  - Stabilization window: `20s`
+  - Max pods added per interval: 1 pod per 30s
+
+**Skills Tested:**
+- Namespace creation
+- Deployment with node selectors
+- QoS configuration (Burstable)
+- Service creation
+- HPA with custom scaling policies
+</Accordion>
+
+<Note>
+  This is a comprehensive task. Break it down into steps: namespace → deployment → service → HPA. Verify each component before proceeding.
+</Note>
+
+---
+
+## Task 7: Priority Classes
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Create a PriorityClass and use it in a deployment.
+
+<Steps>
+  <Step title="Create PriorityClass">
+    Name: `high-value`
+    
+    Value: 2 less than maximum allowed (typically 1000000000 - 2 = 999999998)
+  </Step>
+  
+  <Step title="Create deployment">
+    Deployment: `high-value-application`
+    - Image: `lovelearnlinux/webserver:v1`
+    - Replicas: `3`
+    - Label: `app=webapp`
+    - Priority class: `high-value`
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- PriorityClass creation
+- Priority value configuration
+- Deployment with priority class assignment
+- Pod scheduling priority
+</Accordion>
+
+<Tip>
+  Check the maximum priority value with `kubectl get priorityclasses` before creating your custom class.
+</Tip>
+
+---
+
+## Task 8: ConfigMap with HTML Template
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Mount a ConfigMap as a file volume and update it dynamically.
+
+**Namespace:** `prod`
+
+**ConfigMap:** `welcome`
+```html
+<html>
+<title>sample application using configmap</title>
+<h1>welcome to our test environment</h1>
+</html>
+```
+
+**Deployment:** `welcome-app`
+- Image: `lovelearnlinux/webserver:v1`
+- Label: `app=welcome`
+- QoS: `Burstable`
+- Mount ConfigMap to `/var/www/html`
+
+**Service:** `welcome-app-svc`
+- Type: `ClusterIP`
+- Port: `80`
+
+**Update Task:**
+Update the ConfigMap to change:
+```html
+<h1>welcome to our test environment</h1>
+```
+to:
+```html
+<h1>welcome to our best environment</h1>
+```
+
+Verify the changes are reflected in the application.
+
+**Skills Tested:**
+- ConfigMap creation from file/data
+- Volume mounting of ConfigMaps
+- ConfigMap updates
+- Application configuration management
+</Accordion>
+
+<Warning>
+  ConfigMap updates can take time to propagate to mounted volumes (typically 60-90 seconds). Be patient when verifying changes.
+</Warning>
+
+---
+
+## Task 9: Affinity & Anti-Affinity
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Practice pod affinity and anti-affinity for co-location and separation.
+
+<Steps>
+  <Step title="Deploy webapp">
+    Pod name: `webapp`
+    - Image: `nginx:latest`
+    - Label: `name=webapp`
+  </Step>
+  
+  <Step title="Deploy dbapp with affinity">
+    Pod name: `dbapp` (deploy on the **same node** as `webapp`)
+    - Image: `redis`
+    - Label: `name=dbapp`
+    - Use pod affinity with `topologyKey: kubernetes.io/hostname`
+  </Step>
+  
+  <Step title="Redeploy with anti-affinity">
+    Delete `dbapp` and redeploy it on a **different node** than `webapp` using pod anti-affinity
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- Pod affinity configuration
+- Pod anti-affinity configuration
+- Topology keys
+- Scheduling constraints
+</Accordion>
+
+<Tip>
+  Use `requiredDuringSchedulingIgnoredDuringExecution` for strict affinity/anti-affinity rules. Check pod placement with `kubectl get pods -o wide`.
+</Tip>
+
+---
+
+## Task 10: RBAC & Service Account
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Create complete RBAC configuration with ServiceAccount, Role, and RoleBinding.
+
+**Namespace:** `nsone`
+
+<Steps>
+  <Step title="Create ServiceAccount">
+    ServiceAccount name: `nsone-sa`
+  </Step>
+  
+  <Step title="Create Role">
+    Grant permissions to **create**, **get**, and **list**:
+    - Pods
+    - ConfigMaps
+    
+    Scope: `nsone` namespace only
+  </Step>
+  
+  <Step title="Create RoleBinding">
+    Bind the role to `nsone-sa`
+  </Step>
+  
+  <Step title="Create test pod">
+    Create a pod in `nsone` using ServiceAccount `nsone-sa`
+  </Step>
+  
+  <Step title="Verify permissions">
+    Test permissions using:
+    ```bash
+    kubectl auth can-i create pods --as=system:serviceaccount:nsone:nsone-sa -n nsone
+    kubectl auth can-i delete pods --as=system:serviceaccount:nsone:nsone-sa -n nsone
+    kubectl auth can-i list configmaps --as=system:serviceaccount:nsone:nsone-sa -n nsone
+    ```
+  </Step>
+</Steps>
+
+**Expected Results:**
+- `create pods`: yes
+- `delete pods`: no
+- `list configmaps`: yes
+
+**Skills Tested:**
+- ServiceAccount creation
+- Role definition with specific verbs
+- RoleBinding configuration
+- Permission testing with `auth can-i`
+</Accordion>
+
+<Note>
+  RBAC is namespace-scoped when using Role and RoleBinding. For cluster-wide permissions, use ClusterRole and ClusterRoleBinding.
+</Note>
+
+---
+
+## Practice Tips
+
+<Steps>
+  <Step title="Time management">
+    Allocate 8-10 minutes per task. Move on if you get stuck.
+  </Step>
+  
+  <Step title="Verify everything">
+    After each task, verify resources are created and functioning:
+    - `kubectl get` for resource existence
+    - `kubectl describe` for detailed status
+    - `kubectl logs` for pod issues
+  </Step>
+  
+  <Step title="Use imperative commands">
+    Generate YAML with `--dry-run=client -o yaml` and edit as needed rather than writing from scratch.
+  </Step>
+  
+  <Step title="Clean up between tasks">
+    Delete resources from previous tasks to avoid confusion and resource conflicts.
+  </Step>
+  
+  <Step title="Document your approach">
+    Keep notes on commands that work. Build your personal cheat sheet.
+  </Step>
+</Steps>
+
+<Tip>
+  After completing all tasks, review any mistakes and understand the correct solutions. Repetition builds speed and confidence.
+</Tip>

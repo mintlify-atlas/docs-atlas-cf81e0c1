@@ -1,0 +1,217 @@
+---
+title: ArgoCD for GitOps
+description: Implement GitOps workflows with ArgoCD for continuous deployment from Git repositories
+---
+
+ArgoCD is a declarative, GitOps continuous delivery tool for Kubernetes. It monitors your Git repository and automatically syncs the desired state to your cluster.
+
+## Prerequisites
+
+- Running Kubernetes cluster (EKS, GKE, AKS, or self-managed)
+- Helm installed
+- kubectl configured
+- Git repository with Kubernetes manifests
+
+## Installing ArgoCD
+
+<Steps>
+  <Step title="Add Argo Helm Repository">
+    ```bash
+    helm repo add argo https://argoproj.github.io/argo-helm
+    helm repo update
+    ```
+  </Step>
+
+  <Step title="Create ArgoCD Namespace">
+    ```bash
+    kubectl create ns argocd
+    ```
+  </Step>
+
+  <Step title="Create Values File">
+    Create a values file to expose ArgoCD via LoadBalancer:
+
+    ```yaml argo-cd-values.yaml
+    server:
+      service:
+        type: LoadBalancer
+    ```
+  </Step>
+
+  <Step title="Install ArgoCD">
+    ```bash
+    helm -n argocd install argocd-demo argo/argo-cd -f argo-cd-values.yaml
+    ```
+  </Step>
+
+  <Step title="Retrieve Admin Password">
+    Get the initial admin password:
+
+    ```bash
+    kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+    ```
+  </Step>
+</Steps>
+
+## Accessing ArgoCD Dashboard
+
+<Info>
+Access the ArgoCD UI using the LoadBalancer URL with:
+- **Username**: `admin`
+- **Password**: Retrieved from the previous step
+</Info>
+
+## Creating an Application
+
+### Option 1: Using the UI
+
+<Steps>
+  <Step title="Navigate to New App">
+    Click on **New App** in the ArgoCD dashboard
+  </Step>
+
+  <Step title="Configure Application Settings">
+    Fill in the application details:
+
+    - **Application Name**: testapp
+    - **Project**: default
+    - **Sync Policy**: Manual or Automatic
+    - **Repository URL**: https://github.com/networknuts/argocd
+    - **Path**: releaseone
+    - **Cluster URL**: https://kubernetes.default.svc (for same cluster)
+    - **Namespace**: target namespace for deployment
+  </Step>
+
+  <Step title="Create and Sync">
+    Click **Create** and then **Sync** to deploy the application
+  </Step>
+</Steps>
+
+### Option 2: Using YAML Manifest
+
+```yaml application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testapp
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/networknuts/argocd
+    targetRevision: HEAD
+    path: releaseone
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+Apply the manifest:
+
+```bash
+kubectl apply -f application.yaml
+```
+
+## GitOps Workflow
+
+<Steps>
+  <Step title="Push Changes to Git">
+    Make changes to your Kubernetes manifests in the Git repository:
+
+    ```bash
+    git add .
+    git commit -m "Update deployment replicas"
+    git push origin main
+    ```
+  </Step>
+
+  <Step title="ArgoCD Detects Changes">
+    ArgoCD will detect the changes in your Git repository
+  </Step>
+
+  <Step title="Automatic Sync (if enabled)">
+    If automatic sync is enabled, ArgoCD will apply changes immediately. Otherwise, click **Sync** in the UI.
+  </Step>
+
+  <Step title="Verify Deployment">
+    Access your application using the LoadBalancer service URL
+  </Step>
+</Steps>
+
+## Getting Cluster URL
+
+<CodeGroup>
+```bash Same Cluster
+# If ArgoCD is running on the same cluster
+https://kubernetes.default.svc
+```
+
+```bash AWS EKS
+# Get EKS cluster endpoint
+aws eks describe-cluster --name cluster-name --region ap-south-1
+
+# Or get just the endpoint
+aws eks describe-cluster --name cluster-name --query "cluster.endpoint" --output text
+```
+</CodeGroup>
+
+## Sync Policies
+
+<Accordion title="Manual Sync">
+Requires manual approval to sync changes from Git to the cluster. Provides more control over deployments.
+
+```yaml
+syncPolicy:
+  syncOptions:
+  - CreateNamespace=true
+```
+</Accordion>
+
+<Accordion title="Automatic Sync">
+Automatically syncs changes from Git to the cluster when detected.
+
+```yaml
+syncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
+```
+
+- **prune**: Delete resources that are no longer in Git
+- **selfHeal**: Revert manual changes made to the cluster
+</Accordion>
+
+## Alternative Installation (Custom Template)
+
+For advanced customization:
+
+```bash
+# Generate template with custom settings
+helm template argocd argo/argo-cd --version 1.2.3 --set crds.install=false > myvalues.yaml
+
+# Install with custom template
+helm -n argocd install argocd argo/argo-cd -f myvalues.yaml
+
+# Verify pods
+kubectl -n argocd get pods
+```
+
+<Warning>
+Never commit the ArgoCD admin password to Git. Use Kubernetes secrets or external secret management solutions.
+</Warning>
+
+## Best Practices
+
+- Use separate Git repositories for application code and Kubernetes manifests
+- Implement branch-based deployments (main → production, develop → staging)
+- Enable automated sync only after thorough testing
+- Use ArgoCD Projects to organize applications and enforce policies
+- Monitor sync status and set up alerts for failed deployments
+
+<Note>
+ArgoCD supports multiple source types including Helm charts, Kustomize, Jsonnet, and plain YAML manifests.
+</Note>

@@ -1,0 +1,154 @@
+---
+title: Helm Package Manager
+description: Install and use Helm to manage Kubernetes applications with reusable charts
+---
+
+Helm is the package manager for Kubernetes, enabling you to define, install, and upgrade complex Kubernetes applications using reusable charts.
+
+## Installing Helm
+
+<Steps>
+  <Step title="Add Helm GPG Key">
+    Download and add the Helm signing key to your system:
+
+    ```bash
+    curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+    ```
+  </Step>
+
+  <Step title="Add Helm Repository">
+    Configure the Helm APT repository:
+
+    ```bash
+    sudo apt-get install apt-transport-https --yes
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+    ```
+  </Step>
+
+  <Step title="Install Helm">
+    Update package lists and install Helm:
+
+    ```bash
+    sudo apt-get update -y
+    sudo apt-get install helm -y
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    Check that Helm is installed correctly:
+
+    ```bash
+    helm version
+    ```
+  </Step>
+</Steps>
+
+## Basic Helm Commands
+
+<CodeGroup>
+```bash Add Repository
+helm repo add <repo-name> <repo-url>
+helm repo update
+```
+
+```bash Search Charts
+helm search repo <chart-name>
+```
+
+```bash Install Chart
+helm install <release-name> <chart-name>
+```
+
+```bash List Releases
+helm list -A
+```
+
+```bash Upgrade Release
+helm upgrade <release-name> <chart-name>
+```
+
+```bash Uninstall Release
+helm uninstall <release-name>
+```
+</CodeGroup>
+
+## Installing Applications with Helm
+
+### Example: Prometheus Stack
+
+```bash
+# Add Prometheus community repository
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+# Create namespace
+kubectl create ns monitoring
+
+# Install Prometheus stack
+helm install prometheus --namespace monitoring prometheus-community/kube-prometheus-stack
+```
+
+### Using Custom Values
+
+Create a custom values file to override default settings:
+
+```bash
+# Generate default values
+helm show values <chart-name> > custom-values.yaml
+
+# Edit the file
+vim custom-values.yaml
+
+# Install with custom values
+helm install <release-name> <chart-name> -f custom-values.yaml
+```
+
+<Note>
+Always review the default values before installing a chart to understand available configuration options.
+</Note>
+
+## Helm Template
+
+Generate Kubernetes manifests from a chart without installing:
+
+```bash
+helm template <release-name> <chart-name> > manifests.yaml
+```
+
+This is useful for:
+- Reviewing what will be deployed
+- Creating custom manifests
+- CI/CD pipelines
+- GitOps workflows
+
+## Best Practices
+
+<Accordion title="Use Version Pinning">
+Always specify chart versions in production to ensure reproducible deployments:
+
+```bash
+helm install myapp repo/chart --version 1.2.3
+```
+</Accordion>
+
+<Accordion title="Namespace Management">
+Create namespaces explicitly before installing charts:
+
+```bash
+kubectl create namespace <namespace>
+helm install <release> <chart> -n <namespace>
+```
+</Accordion>
+
+<Accordion title="Values File Management">
+Maintain separate values files for different environments:
+
+```bash
+helm install myapp chart/ -f values-prod.yaml
+helm install myapp chart/ -f values-dev.yaml
+```
+</Accordion>
+
+<Warning>
+Be careful when upgrading Helm releases in production. Always test upgrades in a staging environment first and consider using `helm diff` plugin to preview changes.
+</Warning>

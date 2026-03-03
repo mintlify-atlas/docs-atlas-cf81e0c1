@@ -1,0 +1,932 @@
+---
+title: Kubernetes Troubleshooting Guide
+description: Common Kubernetes issues, debugging techniques, and solutions for production environments
+---
+
+## Pod Issues
+
+<Accordion title="Pod stuck in Pending state">
+  **Symptoms:**
+  - Pod shows `Pending` status indefinitely
+  - Pods not being scheduled
+  
+  **Common Causes & Solutions:**
+  
+  <Tabs>
+    <Tab title="Insufficient Resources">
+      **Check cluster capacity:**
+      ```bash
+      kubectl describe nodes
+      kubectl top nodes
+      ```
+      
+      **Look for:**
+      - CPU/Memory pressure
+      - Allocatable vs requested resources
+      
+      **Solution:**
+      - Scale up cluster (add nodes)
+      - Reduce resource requests
+      - Enable cluster autoscaler
+    </Tab>
+    
+    <Tab title="Node Selector/Affinity Mismatch">
+      **Check Pod spec:**
+      ```bash
+      kubectl describe pod <pod-name>
+      ```
+      
+      **Look for:**
+      - `nodeSelector` that doesn't match any nodes
+      - Node affinity rules too restrictive
+      - Taints on nodes without matching tolerations
+      
+      **Solution:**
+      ```bash
+      # Check node labels
+      kubectl get nodes --show-labels
+      
+      # Check taints
+      kubectl describe node <node-name> | grep Taints
+      ```
+    </Tab>
+    
+    <Tab title="PVC Not Bound">
+      **Check PVC status:**
+      ```bash
+      kubectl get pvc
+      kubectl describe pvc <pvc-name>
+      ```
+      
+      **Solution:**
+      - Ensure PersistentVolume exists with matching storageClass
+      - Check if dynamic provisioning is configured
+      - Verify access modes match (RWO, RWX, ROX)
+    </Tab>
+  </Tabs>
+</Accordion>
+
+<Accordion title="Pod stuck in CrashLoopBackOff">
+  **What it means:**
+  
+  Container keeps crashing and Kubernetes keeps restarting it with exponential backoff.
+  
+  **Debugging Steps:**
+  
+  ```bash
+  # Check current logs
+  kubectl logs <pod-name> -n <namespace>
+  
+  # Check previous container logs (crashed container)
+  kubectl logs <pod-name> -n <namespace> --previous
+  
+  # Check all containers in Pod
+  kubectl logs <pod-name> -c <container-name> --previous
+  
+  # Get detailed Pod info
+  kubectl describe pod <pod-name> -n <namespace>
+  ```
+  
+  **Common Causes:**
+  
+  <CodeGroup>
+    ```yaml Wrong Image
+    # Check for:
+    - Incorrect image tag
+    - Image doesn't exist in registry
+    - Wrong registry URL
+    - Authentication issues with private registry
+    
+    # Verify:
+    kubectl get pod <pod-name> -o jsonpath='{.spec.containers[*].image}'
+    ```
+    
+    ```yaml Missing Dependencies
+    # ConfigMap or Secret not found
+    - Check if ConfigMap/Secret exists
+    - Verify namespace matches
+    
+    kubectl get configmap -n <namespace>
+    kubectl get secret -n <namespace>
+    ```
+    
+    ```yaml Application Error
+    # Application crashes on startup
+    - Check logs for stack traces
+    - Verify environment variables
+    - Check database connectivity
+    - Validate configuration files
+    ```
+    
+    ```yaml Failing Liveness Probe
+    # Liveness probe kills healthy container
+    - initialDelaySeconds too short
+    - App takes longer to start than probe allows
+    
+    # Solution: Increase delays
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8080
+      initialDelaySeconds: 60  # Increase this
+      periodSeconds: 10
+      failureThreshold: 3
+    ```
+  </CodeGroup>
+  
+  <Warning>
+  Use `--previous` flag to see logs from the crashed container, not the current restarted one
+  </Warning>
+</Accordion>
+
+<Accordion title="Pod stuck in ImagePullBackOff">
+  **What it means:**
+  
+  Kubernetes cannot pull the container image from registry.
+  
+  **Debugging:**
+  
+  ```bash
+  kubectl describe pod <pod-name>
+  ```
+  
+  **Common Causes:**
+  
+  1. **Image doesn't exist**
+     - Typo in image name/tag
+     - Image was deleted from registry
+     
+  2. **Authentication required**
+     ```bash
+     # Create docker-registry secret
+     kubectl create secret docker-registry regcred \
+       --docker-server=<registry> \
+       --docker-username=<username> \
+       --docker-password=<password> \
+       --docker-email=<email>
+     ```
+     
+     ```yaml
+     # Add to Pod spec
+     spec:
+       imagePullSecrets:
+       - name: regcred
+     ```
+     
+  3. **Network issues**
+     - Registry is unreachable from cluster
+     - Firewall blocking registry access
+     
+  4. **Rate limiting**
+     - Docker Hub rate limits (100 pulls/6h for anonymous)
+     - Solution: Authenticate or use alternative registry
+</Accordion>
+
+<Accordion title="Pod stuck in Terminating state">
+  **What it means:**
+  
+  Pod won't delete and stays in `Terminating` status.
+  
+  **Debugging:**
+  
+  ```bash
+  kubectl describe pod <pod-name>
+  ```
+  
+  **Common Causes:**
+  
+  1. **Finalizers preventing deletion**
+     ```bash
+     # Check finalizers
+     kubectl get pod <pod-name> -o yaml | grep finalizers -A 5
+     
+     # Remove finalizers (use with caution)
+     kubectl patch pod <pod-name> -p '{"metadata":{"finalizers":null}}'
+     ```
+     
+  2. **PreStop hook hanging**
+     - PreStop hook takes too long
+     - Increase `terminationGracePeriodSeconds`
+     
+  3. **Force delete (last resort)**
+     ```bash
+     kubectl delete pod <pod-name> --grace-period=0 --force
+     ```
+     
+  <Warning>
+  Force deletion can leave orphaned resources. Use only when necessary.
+  </Warning>
+</Accordion>
+
+<Accordion title="OOMKilled - Out of Memory">
+  **Symptoms:**
+  
+  Pod terminated with exit code 137 or status `OOMKilled`.
+  
+  **Check:**
+  
+  ```bash
+  kubectl describe pod <pod-name>
+  # Look for: "Reason: OOMKilled"
+  
+  kubectl get pod <pod-name> -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}'
+  ```
+  
+  **Solutions:**
+  
+  1. **Increase memory limits**
+     ```yaml
+     resources:
+       limits:
+         memory: "512Mi"  # Increase this
+       requests:
+         memory: "256Mi"
+     ```
+     
+  2. **Fix memory leak in application**
+     - Profile application memory usage
+     - Check for unbounded caches
+     - Review database connection pooling
+     
+  3. **Enable Vertical Pod Autoscaler**
+     - VPA automatically adjusts resource requests/limits
+     
+  4. **Monitor memory usage**
+     ```bash
+     kubectl top pod <pod-name>
+     ```
+</Accordion>
+
+---
+
+## Configuration Issues
+
+<Accordion title="ConfigMap/Secret changes not reflecting in Pods">
+  **Why this happens:**
+  
+  <Tabs>
+    <Tab title="Environment Variables">
+      **Problem:**
+      
+      ConfigMaps/Secrets mounted as **environment variables** are **NOT updated** when changed.
+      
+      **Solution:**
+      
+      Restart the deployment:
+      ```bash
+      kubectl rollout restart deployment <deployment-name>
+      ```
+      
+      Or force a rolling update:
+      ```bash
+      kubectl patch deployment <deployment-name> \
+        -p '{"spec":{"template":{"metadata":{"annotations":{"date":"'$(date +%s)'"}}}}}'
+      ```
+    </Tab>
+    
+    <Tab title="Volume Mounts">
+      **Behavior:**
+      
+      ConfigMaps/Secrets mounted as **volumes** are updated automatically (with kubelet sync delay ~1 minute).
+      
+      **Example:**
+      ```yaml
+      spec:
+        containers:
+        - name: app
+          volumeMounts:
+          - name: config
+            mountPath: /etc/config
+            readOnly: true
+        volumes:
+        - name: config
+          configMap:
+            name: app-config
+      ```
+      
+      **Note:**
+      - Application must watch file for changes and reload
+      - Some apps require manual reload even with volume mounts
+    </Tab>
+    
+    <Tab title="Immutable ConfigMaps">
+      **Problem:**
+      
+      ConfigMap is marked as immutable:
+      ```yaml
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: app-config
+      immutable: true  # Cannot be updated
+      data:
+        key: value
+      ```
+      
+      **Solution:**
+      
+      Create new ConfigMap with different name:
+      ```bash
+      kubectl create configmap app-config-v2 --from-file=config.yaml
+      ```
+      
+      Update Deployment to use new ConfigMap.
+    </Tab>
+  </Tabs>
+</Accordion>
+
+<Accordion title="Service not routing traffic to Pods">
+  **Debugging Steps:**
+  
+  1. **Check Service endpoints**
+     ```bash
+     kubectl get endpoints <service-name>
+     ```
+     
+     If no endpoints, Service selector doesn't match Pod labels.
+     
+  2. **Verify Pod labels**
+     ```bash
+     # Get Service selector
+     kubectl get svc <service-name> -o jsonpath='{.spec.selector}'
+     
+     # Get Pod labels
+     kubectl get pods --show-labels
+     ```
+     
+     Labels must match exactly.
+     
+  3. **Check Pod readiness**
+     ```bash
+     kubectl get pods
+     ```
+     
+     Pods must be `Running` and `READY 1/1`.
+     
+     If not ready, check readiness probe:
+     ```bash
+     kubectl describe pod <pod-name> | grep -A 10 "Readiness"
+     ```
+     
+  4. **Test Service connectivity**
+     ```bash
+     # From within cluster
+     kubectl run test --image=busybox -it --rm -- wget -O- <service-name>:<port>
+     
+     # Port-forward to local machine
+     kubectl port-forward svc/<service-name> 8080:80
+     curl localhost:8080
+     ```
+     
+  5. **Check network policies**
+     ```bash
+     kubectl get networkpolicy
+     kubectl describe networkpolicy <policy-name>
+     ```
+</Accordion>
+
+---
+
+## Networking Issues
+
+<Accordion title="DNS resolution not working">
+  **Symptoms:**
+  
+  - Pods can't resolve service names
+  - `nslookup` fails inside Pod
+  
+  **Debugging:**
+  
+  1. **Test DNS from Pod**
+     ```bash
+     kubectl run test --image=busybox -it --rm -- nslookup kubernetes.default
+     ```
+     
+  2. **Check CoreDNS/kube-dns Pods**
+     ```bash
+     kubectl get pods -n kube-system -l k8s-app=kube-dns
+     kubectl logs -n kube-system -l k8s-app=kube-dns
+     ```
+     
+  3. **Verify DNS service**
+     ```bash
+     kubectl get svc -n kube-system kube-dns
+     ```
+     
+  4. **Check Pod DNS config**
+     ```bash
+     kubectl exec <pod-name> -- cat /etc/resolv.conf
+     ```
+     
+     Should contain:
+     ```
+     nameserver 10.96.0.10  # kube-dns service IP
+     search default.svc.cluster.local svc.cluster.local cluster.local
+     ```
+     
+  5. **Common issues:**
+     - CoreDNS not running
+     - Network policy blocking DNS traffic (port 53)
+     - Wrong CNI configuration
+</Accordion>
+
+<Accordion title="Ingress not routing traffic">
+  **Checklist:**
+  
+  1. **Ingress Controller installed?**
+     ```bash
+     kubectl get pods -n ingress-nginx
+     # or
+     kubectl get pods -n kube-system | grep ingress
+     ```
+     
+  2. **Ingress resource created?**
+     ```bash
+     kubectl get ingress
+     kubectl describe ingress <ingress-name>
+     ```
+     
+  3. **Check Ingress address**
+     ```bash
+     kubectl get ingress <ingress-name>
+     # Should show ADDRESS column populated
+     ```
+     
+  4. **Verify Service and endpoints exist**
+     ```bash
+     kubectl get svc
+     kubectl get endpoints
+     ```
+     
+  5. **Check Ingress Controller logs**
+     ```bash
+     kubectl logs -n ingress-nginx deployment/ingress-nginx-controller
+     ```
+     
+  6. **Test without Ingress**
+     ```bash
+     kubectl port-forward svc/<service-name> 8080:80
+     curl localhost:8080
+     ```
+     
+     If this works, issue is with Ingress configuration.
+     
+  7. **Common issues:**
+     - DNS not pointing to Ingress load balancer
+     - Incorrect `host` in Ingress rules
+     - TLS certificate issues
+     - Path not matching (use `pathType: Prefix`)
+</Accordion>
+
+<Accordion title="Cross-namespace communication failing">
+  **Problem:**
+  
+  Pod in namespace A can't reach Service in namespace B.
+  
+  **Solution:**
+  
+  Use **Fully Qualified Domain Name (FQDN)**:
+  
+  ```bash
+  <service-name>.<namespace>.svc.cluster.local
+  ```
+  
+  **Example:**
+  
+  ```bash
+  # From namespace 'dev' to service 'api' in namespace 'prod'
+  curl http://api.prod.svc.cluster.local:8080
+  ```
+  
+  **Shorter form:**
+  ```bash
+  curl http://api.prod:8080
+  ```
+  
+  **Check Network Policies:**
+  
+  ```bash
+  # List all network policies
+  kubectl get networkpolicy --all-namespaces
+  
+  # Check specific policy
+  kubectl describe networkpolicy <policy-name> -n <namespace>
+  ```
+  
+  Network policies might block cross-namespace traffic.
+</Accordion>
+
+---
+
+## Storage Issues
+
+<Accordion title="PVC stuck in Pending">
+  **Causes:**
+  
+  1. **No matching PersistentVolume**
+     ```bash
+     kubectl get pv
+     kubectl get pvc
+     ```
+     
+     Check:
+     - StorageClass matches
+     - Access modes compatible
+     - Sufficient capacity
+     
+  2. **StorageClass not found**
+     ```bash
+     kubectl get storageclass
+     kubectl describe pvc <pvc-name>
+     ```
+     
+  3. **Dynamic provisioning not configured**
+     - Check if CSI driver installed
+     - Verify cloud provider credentials
+     
+  4. **Node affinity mismatch (local volumes)**
+     - PV has node affinity that doesn't match any schedulable node
+     
+  **Solution:**
+  
+  ```yaml
+  # Ensure PVC and PV match:
+  # PVC:
+  storageClassName: fast
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  
+  # PV:
+  storageClassName: fast  # Must match
+  accessModes:
+    - ReadWriteOnce  # Must be compatible
+  capacity:
+    storage: 10Gi  # Must be >= PVC request
+  ```
+</Accordion>
+
+<Accordion title="Pod can't mount volume">
+  **Error messages:**
+  
+  - `Unable to attach or mount volumes`
+  - `Multi-Attach error`
+  - `Volume is already exclusively attached`
+  
+  **Common Causes:**
+  
+  1. **ReadWriteOnce (RWO) volume already mounted**
+     - RWO volumes can only be mounted by one node
+     - Check if volume is mounted by another Pod
+     
+     ```bash
+     # Find which Pod uses the PVC
+     kubectl get pods -o json | jq '.items[] | select(.spec.volumes[]?.persistentVolumeClaim.claimName=="<pvc-name>") | .metadata.name'
+     ```
+     
+     Solution: Delete old Pod first, or use ReadWriteMany (RWX) if supported.
+     
+  2. **Volume not detached from previous node**
+     ```bash
+     # Check VolumeAttachments
+     kubectl get volumeattachment
+     ```
+     
+     Solution: Wait for volume to detach, or manually delete VolumeAttachment.
+     
+  3. **Permission issues**
+     ```bash
+     kubectl logs <pod-name>
+     # Look for: "Permission denied"
+     ```
+     
+     Solution:
+     ```yaml
+     securityContext:
+       fsGroup: 1000  # Match volume owner GID
+     ```
+</Accordion>
+
+---
+
+## Node Issues
+
+<Accordion title="Node in NotReady state">
+  **Check node status:**
+  
+  ```bash
+  kubectl get nodes
+  kubectl describe node <node-name>
+  ```
+  
+  **Common Causes:**
+  
+  1. **kubelet not running**
+     ```bash
+     # SSH to node
+     systemctl status kubelet
+     systemctl restart kubelet
+     journalctl -u kubelet -f
+     ```
+     
+  2. **Network plugin issues**
+     - CNI plugin not installed or misconfigured
+     - Check pod network (Calico, Flannel, Weave)
+     
+  3. **Disk pressure**
+     ```bash
+     # Check disk usage on node
+     df -h
+     
+     # Clean up Docker/containerd
+     docker system prune -a
+     # or
+     crictl rmi --prune
+     ```
+     
+  4. **Memory/CPU pressure**
+     ```bash
+     # Check resource usage
+     top
+     free -m
+     ```
+     
+  5. **Certificate expired**
+     ```bash
+     # Check kubelet logs for certificate errors
+     journalctl -u kubelet | grep certificate
+     ```
+</Accordion>
+
+<Accordion title="Pods evicted from node">
+  **Reasons:**
+  
+  1. **DiskPressure**
+     - Node running out of disk space
+     - Check node conditions:
+       ```bash
+       kubectl describe node <node-name> | grep Conditions -A 10
+       ```
+     
+     Solution:
+     - Clean up unused images and containers
+     - Increase disk size
+     - Configure garbage collection
+     
+  2. **MemoryPressure**
+     - Node running out of memory
+     - Kubelet starts evicting lowest priority Pods
+     
+     Solution:
+     - Set proper resource requests/limits
+     - Add more nodes
+     - Use memory-efficient applications
+     
+  3. **Node maintenance**
+     - Manual cordon and drain
+     
+  **Check eviction events:**
+  ```bash
+  kubectl get events --sort-by='.lastTimestamp' | grep Evicted
+  ```
+</Accordion>
+
+---
+
+## Debugging Tools & Commands
+
+<Accordion title="Essential kubectl debugging commands">
+  ```bash
+  # Pod logs
+  kubectl logs <pod-name>
+  kubectl logs <pod-name> --previous  # Previous container
+  kubectl logs <pod-name> -c <container-name>  # Specific container
+  kubectl logs -f <pod-name>  # Follow/stream logs
+  kubectl logs --tail=100 <pod-name>  # Last 100 lines
+  
+  # Describe resources (detailed info + events)
+  kubectl describe pod <pod-name>
+  kubectl describe node <node-name>
+  kubectl describe svc <service-name>
+  
+  # Execute commands in container
+  kubectl exec <pod-name> -- ls /app
+  kubectl exec -it <pod-name> -- /bin/sh  # Interactive shell
+  
+  # Port forwarding (test connectivity)
+  kubectl port-forward <pod-name> 8080:80
+  kubectl port-forward svc/<service-name> 8080:80
+  
+  # Resource usage
+  kubectl top nodes
+  kubectl top pods
+  kubectl top pods --containers  # Per-container metrics
+  
+  # Get events
+  kubectl get events --sort-by='.lastTimestamp'
+  kubectl get events --field-selector involvedObject.name=<pod-name>
+  
+  # Get resource YAML/JSON
+  kubectl get pod <pod-name> -o yaml
+  kubectl get pod <pod-name> -o json | jq '.status'
+  
+  # Debug with ephemeral container (K8s 1.23+)
+  kubectl debug <pod-name> -it --image=busybox
+  ```
+</Accordion>
+
+<Accordion title="Network debugging tools">
+  **Create debug Pod:**
+  
+  ```bash
+  kubectl run debug --image=nicolaka/netshoot -it --rm
+  ```
+  
+  **Tools included:**
+  - `curl`, `wget` - HTTP requests
+  - `nslookup`, `dig` - DNS debugging
+  - `ping`, `traceroute` - Network connectivity
+  - `netstat`, `ss` - Socket statistics
+  - `tcpdump` - Packet capture
+  - `iperf` - Network performance
+  
+  **Common tests:**
+  
+  ```bash
+  # DNS resolution
+  nslookup kubernetes.default
+  dig +short <service-name>.<namespace>.svc.cluster.local
+  
+  # HTTP connectivity
+  curl -v http://<service-name>:<port>
+  wget -O- http://<service-name>:<port>
+  
+  # TCP connectivity
+  nc -zv <service-name> <port>
+  telnet <service-name> <port>
+  
+  # Check routes
+  ip route
+  
+  # Network interfaces
+  ip addr
+  ifconfig
+  ```
+</Accordion>
+
+<Accordion title="Performance troubleshooting">
+  **Metrics Server (required for `kubectl top`):**
+  
+  ```bash
+  # Install Metrics Server
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  
+  # Verify
+  kubectl get deployment metrics-server -n kube-system
+  ```
+  
+  **Resource usage:**
+  
+  ```bash
+  # Node resource usage
+  kubectl top nodes
+  
+  # Pod resource usage
+  kubectl top pods --all-namespaces
+  kubectl top pods --containers  # Per-container
+  
+  # Sort by CPU
+  kubectl top pods --sort-by=cpu
+  
+  # Sort by memory
+  kubectl top pods --sort-by=memory
+  ```
+  
+  **Analyze resource requests vs limits:**
+  
+  ```bash
+  kubectl get pods -o custom-columns=NAME:.metadata.name,CPU_REQUEST:.spec.containers[*].resources.requests.cpu,CPU_LIMIT:.spec.containers[*].resources.limits.cpu,MEMORY_REQUEST:.spec.containers[*].resources.requests.memory,MEMORY_LIMIT:.spec.containers[*].resources.limits.memory
+  ```
+  
+  **Check cluster capacity:**
+  
+  ```bash
+  kubectl describe nodes | grep -A 5 "Allocated resources"
+  ```
+</Accordion>
+
+---
+
+## Common Error Messages
+
+<Accordion title="Error: 'container is unhealthy, it will be killed and re-created'">
+  **Cause:**
+  
+  Liveness probe failing.
+  
+  **Debug:**
+  
+  ```bash
+  kubectl describe pod <pod-name> | grep -A 10 Liveness
+  kubectl logs <pod-name>
+  ```
+  
+  **Solutions:**
+  
+  1. **Increase probe timeouts:**
+     ```yaml
+     livenessProbe:
+       httpGet:
+         path: /health
+         port: 8080
+       initialDelaySeconds: 30  # Increase
+       periodSeconds: 10
+       timeoutSeconds: 5  # Increase
+       failureThreshold: 3  # Increase
+     ```
+     
+  2. **Fix application health endpoint**
+     - Ensure `/health` returns 200 OK
+     - Check app logs for errors
+     
+  3. **Use startup probe for slow-starting apps**
+     ```yaml
+     startupProbe:
+       httpGet:
+         path: /health
+         port: 8080
+       failureThreshold: 30  # 30 * 10 = 300s max startup time
+       periodSeconds: 10
+     ```
+</Accordion>
+
+<Accordion title="Error: 'Back-off pulling image'">
+  See **Pod stuck in ImagePullBackOff** above.
+  
+  **Quick fixes:**
+  
+  ```bash
+  # Verify image exists
+  docker pull <image-name>
+  
+  # Check imagePullSecrets
+  kubectl get secret
+  kubectl describe pod <pod-name> | grep -A 5 "Image"
+  ```
+</Accordion>
+
+<Accordion title="Error: 'rpc error: code = Unknown desc = Error: No such container'">
+  **Cause:**
+  
+  Container runtime (Docker/containerd) issue.
+  
+  **Solutions:**
+  
+  1. **Check container runtime on node:**
+     ```bash
+     systemctl status docker
+     systemctl status containerd
+     ```
+     
+  2. **Restart container runtime:**
+     ```bash
+     systemctl restart containerd
+     systemctl restart kubelet
+     ```
+     
+  3. **Check runtime logs:**
+     ```bash
+     journalctl -u containerd -f
+     ```
+</Accordion>
+
+---
+
+## Best Practices for Troubleshooting
+
+<Note>
+  **Systematic Approach:**
+  
+  1. **Gather information** - logs, events, describe output
+  2. **Isolate the issue** - Pod? Node? Network? Storage?
+  3. **Check recent changes** - deployments, config updates
+  4. **Test incrementally** - eliminate variables one by one
+  5. **Document findings** - help future troubleshooting
+</Note>
+
+<Warning>
+  **Before force-deleting or making destructive changes:**
+  
+  - Save current state: `kubectl get pod <name> -o yaml > backup.yaml`
+  - Check if issue affects only one Pod or multiple
+  - Test in dev/staging environment first
+  - Have rollback plan ready
+</Warning>
+
+**Useful resources:**
+
+- [Kubernetes Troubleshooting Guide](https://kubernetes.io/docs/tasks/debug/)
+- [kubectl Cheat Sheet](https://kubernetes.io/docs/reference/kubectl/cheatsheet/)
+- Community forums: Kubernetes Slack, Stack Overflow

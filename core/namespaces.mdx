@@ -1,0 +1,317 @@
+---
+title: Namespaces
+description: Organize resources with namespaces and control resource usage with ResourceQuotas and LimitRanges
+---
+
+# Namespaces
+
+Namespaces provide a mechanism for isolating groups of resources within a single cluster. They're ideal for multi-tenant environments, separating development/staging/production, or organizing resources by team.
+
+## Creating Namespaces
+
+```bash
+# Create namespace via CLI
+kubectl create namespace learning
+
+# Create namespace via YAML
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: learning
+EOF
+```
+
+## Default Namespaces
+
+Kubernetes creates several namespaces by default:
+
+<Accordion title="Understanding Default Namespaces">
+  - **`default`**: Resources created without specifying a namespace
+  - **`kube-system`**: System components (kube-dns, metrics-server, etc.)
+  - **`kube-public`**: Publicly readable resources (even by unauthenticated users)
+  - **`kube-node-lease`**: Node heartbeat data for node health tracking
+</Accordion>
+
+## Working with Namespaces
+
+```bash
+# List all namespaces
+kubectl get namespaces
+
+# List resources in a specific namespace
+kubectl get pods --namespace=learning
+
+# Set default namespace for current context
+kubectl config set-context --current --namespace=learning
+
+# View all resources across all namespaces
+kubectl get pods --all-namespaces
+```
+
+## Resource Quotas
+
+ResourceQuotas limit aggregate resource consumption per namespace.
+
+```yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: memory-cpu-quota
+  namespace: learning
+spec:
+  hard:
+    requests.cpu: "1"        # Total CPU requests
+    requests.memory: 1Gi     # Total memory requests
+    limits.cpu: "2"          # Total CPU limits
+    limits.memory: 2Gi       # Total memory limits
+```
+
+### Quota Scope
+
+<CodeGroup>
+```yaml CPU and Memory
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: "2"
+    limits.memory: 2Gi
+```
+
+```yaml Object Count
+spec:
+  hard:
+    pods: "10"                    # Max 10 Pods
+    services: "5"                 # Max 5 Services
+    persistentvolumeclaims: "3"   # Max 3 PVCs
+    configmaps: "10"              # Max 10 ConfigMaps
+    secrets: "10"                 # Max 10 Secrets
+```
+
+```yaml Storage
+spec:
+  hard:
+    requests.storage: "100Gi"               # Total storage requests
+    persistentvolumeclaims: "5"             # Max number of PVCs
+    requests.ephemeral-storage: "10Gi"      # Ephemeral storage requests
+    limits.ephemeral-storage: "20Gi"        # Ephemeral storage limits
+```
+</CodeGroup>
+
+### Managing Resource Quotas
+
+```bash
+# Create quota
+kubectl apply -f namespace-resourcequota.yml
+
+# List quotas
+kubectl get resourcequotas --namespace=learning
+
+# Describe quota (shows current usage)
+kubectl describe resourcequotas memory-cpu-quota --namespace=learning
+
+# Delete quota
+kubectl delete resourcequotas memory-cpu-quota --namespace=learning
+```
+
+<Warning>
+  When ResourceQuota is active, Pods must specify resource requests/limits, or they will be rejected during creation.
+</Warning>
+
+## Limit Ranges
+
+LimitRanges set default resource limits/requests and enforce min/max constraints for containers in a namespace.
+
+```yaml
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: cpu-ram-min-max-test
+spec:
+  limits:
+  - default:           # Default limits (if not specified)
+      cpu: 100m
+      memory: 200Mi
+    defaultRequest:    # Default requests (if not specified)
+      cpu: 40m
+      memory: 100Mi
+    max:               # Maximum allowed
+      cpu: "200m"
+      memory: 256Mi
+    min:               # Minimum required
+      cpu: "10m"
+      memory: 90Mi
+    type: Container
+```
+
+### LimitRange Fields
+
+<Tabs>
+  <Tab title="default">
+    Default **limits** applied to containers that don't specify limits.
+
+    ```yaml
+    default:
+      cpu: 100m
+      memory: 200Mi
+    ```
+
+    If a container omits limits, these values are automatically assigned.
+  </Tab>
+
+  <Tab title="defaultRequest">
+    Default **requests** applied to containers that don't specify requests.
+
+    ```yaml
+    defaultRequest:
+      cpu: 40m
+      memory: 100Mi
+    ```
+
+    If a container omits requests, these values are automatically assigned.
+  </Tab>
+
+  <Tab title="max">
+    Maximum resources a container can request or limit.
+
+    ```yaml
+    max:
+      cpu: "200m"
+      memory: 256Mi
+    ```
+
+    Pods requesting more than this will be rejected.
+  </Tab>
+
+  <Tab title="min">
+    Minimum resources a container must request.
+
+    ```yaml
+    min:
+      cpu: "10m"
+      memory: 90Mi
+    ```
+
+    Pods requesting less than this will be rejected.
+  </Tab>
+</Tabs>
+
+### LimitRange Types
+
+```yaml
+spec:
+  limits:
+  - type: Container    # Applies to each container
+    # ...
+  - type: Pod          # Applies to entire Pod
+    # ...
+  - type: PersistentVolumeClaim  # Applies to PVCs
+    # ...
+```
+
+### Managing Limit Ranges
+
+```bash
+# Create LimitRange
+kubectl apply -f limit-ranges-default-min-max.yaml
+
+# List LimitRanges
+kubectl get limitranges
+
+# Describe LimitRange
+kubectl describe limitrange cpu-ram-min-max-test
+
+# Delete LimitRange
+kubectl delete limitrange cpu-ram-min-max-test
+```
+
+<Note>
+  LimitRanges only affect Pods created **after** the LimitRange is created. Existing Pods are not modified.
+</Note>
+
+## Example: Complete Namespace Setup
+
+```yaml
+# 1. Create namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+---
+# 2. Set resource quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-quota
+  namespace: production
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    pods: "50"
+    services: "20"
+---
+# 3. Set limit range
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: production-limits
+  namespace: production
+spec:
+  limits:
+  - default:
+      cpu: 500m
+      memory: 512Mi
+    defaultRequest:
+      cpu: 100m
+      memory: 128Mi
+    max:
+      cpu: "2"
+      memory: 2Gi
+    min:
+      cpu: 50m
+      memory: 64Mi
+    type: Container
+```
+
+## Namespace Use Cases
+
+<Accordion title="When to Use Namespaces">
+  **Use namespaces for**:
+  - Separating environments (dev, staging, prod)
+  - Multi-tenancy (different teams or customers)
+  - Resource isolation and quota enforcement
+  - Access control boundaries with RBAC
+  - Organizing large numbers of resources
+
+  **Don't use namespaces for**:
+  - Small clusters with few resources
+  - Versioning (use labels instead)
+  - Splitting a single application's components
+</Accordion>
+
+## Namespace Deletion
+
+```bash
+# Delete namespace (also deletes all resources in it)
+kubectl delete namespace learning
+```
+
+<Warning>
+  Deleting a namespace deletes **all resources** within it. This operation cannot be undone.
+</Warning>
+
+## Best Practices
+
+- Create separate namespaces for different environments
+- Always set ResourceQuotas in production namespaces to prevent resource exhaustion
+- Use LimitRanges to enforce minimum resource requests for stability
+- Set sensible defaults with LimitRanges to reduce YAML boilerplate
+- Use RBAC to control who can access each namespace
+- Avoid using the `default` namespace for production workloads
+- Use meaningful namespace names that reflect their purpose
+- Document quota limits and communicate them to users
+- Monitor quota usage to identify when limits need adjustment

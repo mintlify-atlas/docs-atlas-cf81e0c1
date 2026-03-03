@@ -1,0 +1,431 @@
+---
+title: Kubernetes Manifest Reference
+description: Quick reference for common Kubernetes YAML manifests with copy-paste examples
+---
+
+## Pod Manifests
+
+<Tabs>
+  <Tab title="Basic Pod">
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: nnappone
+      namespace: learning
+      labels:
+        app: nnappone
+    spec:
+      containers:
+        - name: networknuts-app
+          image: lovelearnlinux/webserver:v1
+          ports:
+            - containerPort: 80
+              name: http
+              protocol: TCP
+    ```
+  </Tab>
+  
+  <Tab title="Pod with Resources">
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: guaranteed
+      labels:
+        app: apache
+    spec:
+      containers:
+        - name: networknuts-app
+          image: lovelearnlinux/webserver:v1
+          resources:
+            limits:
+              memory: 250Mi
+              cpu: 200m
+            requests:
+              memory: 250Mi
+              cpu: 200m
+    ```
+    <Note>
+    When requests equal limits, the Pod gets **Guaranteed** QoS class
+    </Note>
+  </Tab>
+  
+  <Tab title="Pod with Health Checks">
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: nnappone
+      namespace: learning
+      labels:
+        app: nnappone
+    spec:
+      containers:
+        - name: networknuts-app
+          image: lovelearnlinux/webserver:v1
+          livenessProbe:
+            exec:
+              command:
+                - cat 
+                - /tmp/health.txt
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "400m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          ports:
+            - containerPort: 80
+              name: http
+              protocol: TCP
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Deployment Manifests
+
+<Tabs>
+  <Tab title="Basic Deployment">
+    ```yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: nginx-declarative
+      annotations:
+        environment: prod
+        organization: sales
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: nginx
+      template:
+        metadata:
+          labels:
+            app: nginx
+        spec:
+          containers:
+          - name: nginx
+            image: nginx:latest
+    ```
+  </Tab>
+  
+  <Tab title="Deployment with Rolling Update">
+    ```yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: hello-deploy
+      namespace: learning
+    spec:
+      replicas: 2
+      selector:
+        matchLabels:
+          app: hello-nn
+      minReadySeconds: 10
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 1
+          maxSurge: 1
+      template:
+        metadata:
+          labels:
+            app: hello-nn
+        spec:
+          containers:
+          - name: webserver-pod
+            image: lovelearnlinux/webserver:v1
+            ports:
+            - containerPort: 80
+    ```
+  </Tab>
+  
+  <Tab title="Deployment with Affinity">
+    ```yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: gotohell
+    spec:
+      selector:
+        matchLabels:
+          run: gotohell
+      replicas: 2
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 0
+      template:
+        metadata:
+          labels:
+            run: gotohell
+        spec:
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    run: gotohell
+          containers:
+            - name: gotohell
+              image: lovelearnlinux/webserver:v2
+              livenessProbe:
+                exec:
+                  command:
+                  - cat
+                  - /var/www/html/index.html
+                initialDelaySeconds: 10
+                timeoutSeconds: 3
+                periodSeconds: 20
+                failureThreshold: 3
+              ports:
+                - containerPort: 80
+                  name: http
+                  protocol: TCP
+    ```
+    <Warning>
+    Change `podAffinity` to `podAntiAffinity` to spread Pods across nodes instead of co-locating them
+    </Warning>
+  </Tab>
+</Tabs>
+
+---
+
+## Service Manifests
+
+<Tabs>
+  <Tab title="ClusterIP Service">
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: nnappone-service
+    spec:
+      selector:
+        app: nnappone
+      ports:
+        - protocol: TCP
+          port: 8080
+          targetPort: 80
+    ```
+    <Note>
+    ClusterIP is the default service type - accessible only within the cluster
+    </Note>
+  </Tab>
+  
+  <Tab title="NodePort Service">
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: website-svc
+    spec:
+      type: NodePort
+      selector:
+        app: nginx
+      ports:
+        - port: 80
+          targetPort: 80
+          nodePort: 30007
+    ```
+    <Note>
+    NodePort range: 30000-32767. If not specified, Kubernetes auto-assigns one
+    </Note>
+  </Tab>
+  
+  <Tab title="Full NodePort Example">
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: nnweb-svc
+      namespace: learning
+      labels:
+        app: hello-nn
+    spec:
+      type: NodePort
+      ports:
+      - port: 80
+        nodePort: 30003
+        protocol: TCP
+      selector:
+        app: hello-nn
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Storage Manifests
+
+<Tabs>
+  <Tab title="PersistentVolume (NFS)">
+    ```yaml
+    apiVersion: v1
+    kind: PersistentVolume
+    metadata:
+      name: pvone-nfs
+    spec:
+      capacity:
+        storage: 5Gi
+      volumeMode: Filesystem
+      accessModes:
+        - ReadWriteOnce
+      persistentVolumeReclaimPolicy: Recycle
+      storageClassName: slow
+      nfs:
+        path: /foldername
+        server: ip-address-nfs-server
+    ```
+  </Tab>
+  
+  <Tab title="PersistentVolumeClaim">
+    ```yaml
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: myclaim
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      volumeMode: Filesystem
+      resources:
+        requests:
+          storage: 4Gi
+      storageClassName: slow
+    ```
+  </Tab>
+  
+  <Tab title="Pod Using PVC">
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: app-using-pvc
+    spec:
+      containers:
+      - name: app
+        image: nginx
+        volumeMounts:
+        - name: data
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: myclaim
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Autoscaling Manifests
+
+<CodeGroup>
+  ```yaml HorizontalPodAutoscaler (v2)
+  apiVersion: autoscaling/v2beta2
+  kind: HorizontalPodAutoscaler
+  metadata:
+    name: my-app
+  spec:
+    scaleTargetRef:
+      apiVersion: apps/v1
+      kind: Deployment
+      name: my-app
+    minReplicas: 1
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 66
+  ```
+</CodeGroup>
+
+<Note>
+HPA automatically scales Pods based on CPU/memory utilization or custom metrics
+</Note>
+
+---
+
+## Resource Management
+
+<Accordion title="LimitRange - Default Resource Limits">
+  ```yaml
+  apiVersion: v1
+  kind: LimitRange
+  metadata:
+    name: def-cpu-mem-limit
+    namespace: dev
+  spec:
+    limits:
+    - default:
+        cpu: 111m
+        memory: 99Mi
+      defaultRequest:
+        cpu: 101m
+        memory: 91Mi
+      max:
+        cpu: 200m
+        memory: 100Mi
+      min:
+        cpu: 100m
+        memory: 90Mi
+      type: Container
+  ```
+  
+  **How it works:**
+  - If Pod has no resource block → `default` and `defaultRequest` apply
+  - If Pod has resource block → values must be within `min` and `max`
+</Accordion>
+
+---
+
+## Access Modes Reference
+
+| Access Mode | Abbreviation | Description |
+|-------------|--------------|-------------|
+| ReadWriteOnce | RWO | Volume can be mounted read-write by a single node |
+| ReadOnlyMany | ROX | Volume can be mounted read-only by many nodes |
+| ReadWriteMany | RWX | Volume can be mounted read-write by many nodes |
+| ReadWriteOncePod | RWOP | Volume can be mounted read-write by a single Pod |
+
+---
+
+## Common kubectl Commands
+
+<CodeGroup>
+  ```bash Create Resources
+  kubectl create -f manifest.yaml
+  kubectl apply -f manifest.yaml
+  ```
+  
+  ```bash Get Resources
+  kubectl get pods
+  kubectl get deploy
+  kubectl get svc
+  kubectl get pv,pvc
+  ```
+  
+  ```bash Describe Resources
+  kubectl describe pod <pod-name>
+  kubectl describe service <svc-name>
+  ```
+  
+  ```bash Delete Resources
+  kubectl delete -f manifest.yaml
+  kubectl delete pod <pod-name>
+  ```
+</CodeGroup>

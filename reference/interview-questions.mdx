@@ -1,0 +1,777 @@
+---
+title: DevOps & Kubernetes Interview Questions
+description: Comprehensive collection of real-world DevOps and Kubernetes interview questions with detailed answers
+---
+
+## Kubernetes Core Concepts
+
+<Accordion title="What is a Headless Service in Kubernetes, and when do you use it?">
+  A **Headless Service** is created **without a ClusterIP**, enabling clients to receive Pod IPs directly via DNS instead of load-balanced traffic.
+  
+  **When to Use:**
+  
+  When you need direct Pod-to-Pod communication, especially in **StatefulSets** like:
+  - Cassandra
+  - MongoDB
+  - Kafka
+  
+  Each Pod must be uniquely addressable (`pod-0`, `pod-1`, etc.).
+  
+  ```yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: my-headless-service
+  spec:
+    clusterIP: None  # This makes it headless
+    selector:
+      app: myapp
+    ports:
+    - port: 80
+  ```
+</Accordion>
+
+<Accordion title="How can a Pod talk to a Service in another namespace?">
+  Use the service's **FQDN** (Fully Qualified Domain Name):
+  
+  ```
+  <service-name>.<namespace>.svc.cluster.local
+  ```
+  
+  **Example:**
+  
+  A Pod in `dev` namespace accessing a service in `prod` namespace:
+  
+  ```bash
+  curl http://nginx-service.prod.svc.cluster.local
+  ```
+  
+  You can also use the shorter form:
+  ```bash
+  curl http://nginx-service.prod
+  ```
+</Accordion>
+
+<Accordion title="What is a Deployment in Kubernetes?">
+  A Deployment manages the lifecycle of Pods—scaling, rolling updates, and rollbacks.
+  
+  **Key Features:**
+  - Declarative updates for Pods and ReplicaSets
+  - Rolling updates with zero downtime
+  - Easy rollback to previous versions
+  - Scaling up/down replicas
+  - Self-healing (recreates failed Pods)
+</Accordion>
+
+<Accordion title="Explain a Kubernetes Pod to a 5-year-old">
+  A Pod is like a lunchbox holding your food containers (apps). They always stay together.
+  
+  **In technical terms:**
+  - A Pod is the smallest deployable unit in Kubernetes
+  - It can contain one or more containers
+  - Containers in a Pod share network and storage
+  - They're scheduled together on the same node
+</Accordion>
+
+<Accordion title="What is a StatefulSet?">
+  StatefulSet manages Pods requiring **persistent storage** or **stable network identity**.
+  
+  **Use Cases:**
+  - Databases (MySQL, PostgreSQL, MongoDB)
+  - Distributed systems (Kafka, Cassandra, Elasticsearch)
+  - Applications requiring stable hostnames
+  
+  **Key Features:**
+  - Ordered, graceful deployment and scaling
+  - Stable, persistent storage
+  - Stable network identifiers (pod-0, pod-1, pod-2)
+  - Ordered, automated rolling updates
+</Accordion>
+
+<Accordion title="What is a DaemonSet?">
+  DaemonSet ensures a Pod runs on **every node** (or selected nodes).
+  
+  **Common Use Cases:**
+  - Monitoring agents (Prometheus Node Exporter, Datadog)
+  - Log collectors (Fluentd, Filebeat)
+  - Storage daemons (Ceph, GlusterFS)
+  - Network proxies (kube-proxy)
+  
+  When you add a new node, the DaemonSet automatically deploys the Pod to it.
+</Accordion>
+
+<Accordion title="What are Kubernetes Operators?">
+  **Operators = Controllers that extend Kubernetes API using CRDs (Custom Resource Definitions)**
+  
+  They automate:
+  - Deployment
+  - Upgrades
+  - Healing
+  - Backup/restore
+  
+  **Examples:**
+  - Prometheus Operator
+  - MySQL Operator
+  - Kafka Operator
+  
+  Operators encode operational knowledge into software to manage complex applications.
+</Accordion>
+
+<Accordion title="What are Admission Controllers?">
+  Kubernetes plugins that **intercept API requests** before they're persisted in etcd.
+  
+  **Two Types:**
+  
+  1. **Validating** → Validate requests (allow/deny)
+  2. **Mutating** → Modify requests (inject sidecars, set defaults)
+  
+  **Common Use Cases:**
+  - Enforce security policies
+  - Inject sidecars automatically
+  - Deny privileged pods
+  - Resource quotas
+  - Limit ranges
+  - Image scanning enforcement
+</Accordion>
+
+---
+
+## Services & Networking
+
+<Accordion title="What is a Service in Kubernetes?">
+  A Service is a **stable network endpoint** that exposes Pods for communication.
+  
+  **Service Types:**
+  - **ClusterIP** (default) - Internal cluster access only
+  - **NodePort** - Exposes service on each node's IP at a static port
+  - **LoadBalancer** - Creates external load balancer (cloud providers)
+  - **ExternalName** - Maps service to external DNS name
+</Accordion>
+
+<Accordion title="LoadBalancer vs Ingress Controller">
+  <Tabs>
+    <Tab title="LoadBalancer Service">
+      **LoadBalancer:**
+      - Layer 4 traffic distribution (TCP/UDP)
+      - Allocates a cloud load balancer (AWS ELB, GCP LB)
+      - One LB per service → **expensive**
+      - Simple setup, but costly at scale
+      
+      ```yaml
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: my-service
+      spec:
+        type: LoadBalancer
+        ports:
+        - port: 80
+        selector:
+          app: myapp
+      ```
+    </Tab>
+    
+    <Tab title="Ingress Controller">
+      **Ingress:**
+      - Layer 7 HTTP routing & SSL termination
+      - Routes multiple services behind **one** load balancer
+      - Can route via hostname/path rules
+      - Requires an **Ingress Controller** (NGINX, Traefik, AWS ALB)
+      - Cost-effective for multiple services
+      
+      ```yaml
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: my-ingress
+      spec:
+        rules:
+        - host: example.com
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: my-service
+                  port:
+                    number: 80
+      ```
+    </Tab>
+  </Tabs>
+</Accordion>
+
+<Accordion title="Why do we need an Ingress Controller?">
+  Because the **Ingress resource only defines routing rules**—it does *nothing* by itself.
+  
+  The **Ingress Controller** implements those rules using a reverse proxy such as:
+  - NGINX
+  - Traefik
+  - HAProxy
+  - AWS ALB
+  - Istio Gateway
+  
+  <Note>
+  Think of Ingress as a configuration file, and Ingress Controller as the software that reads and applies it.
+  </Note>
+</Accordion>
+
+<Accordion title="What are network policies in Kubernetes?">
+  Network Policies control **pod-to-pod**, **pod-to-service**, and **pod-to-external** traffic.
+  
+  They act as **firewalls for Pods**.
+  
+  **Example:**
+  ```yaml
+  apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: allow-frontend
+  spec:
+    podSelector:
+      matchLabels:
+        app: backend
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            app: frontend
+  ```
+  
+  <Warning>
+  Network Policies require a CNI plugin that supports them (Calico, Cilium, Weave)
+  </Warning>
+</Accordion>
+
+---
+
+## Troubleshooting
+
+<Accordion title="Pod stuck in CrashLoopBackOff — how do you troubleshoot?">
+  A Pod goes into **CrashLoopBackOff** when its container keeps crashing and restarting.
+  
+  **Steps to Debug:**
+  
+  ```bash
+  # Check current logs
+  kubectl logs <pod-name> -n <namespace>
+  
+  # Check logs from previous crashed container
+  kubectl logs <pod-name> -n <namespace> --previous
+  
+  # Get detailed Pod information
+  kubectl describe pod <pod-name>
+  ```
+  
+  **Common Causes:**
+  - Incorrect image or tag
+  - Missing ConfigMap/Secret
+  - Application runtime error
+  - Failing liveness probe
+  - Insufficient resources
+  - Wrong command/args in Pod spec
+</Accordion>
+
+<Accordion title="ConfigMap changes not showing in Pods — why?">
+  **Reason:**
+  
+  - If mounted as a **volume** → updates auto-refresh (with small delay)
+  - If used as **environment variables** → **Pod restart required**
+  
+  **Fix:**
+  
+  ```bash
+  kubectl rollout restart deployment <deployment-name>
+  ```
+  
+  <Note>
+  For automatic updates, always mount ConfigMaps as volumes instead of using environment variables.
+  </Note>
+</Accordion>
+
+<Accordion title="Can you create a Pod without a Deployment?">
+  Yes, absolutely!
+  
+  ```bash
+  kubectl run my-pod --image=nginx
+  ```
+  
+  **But you lose:**
+  - Scaling capabilities
+  - Self-healing (automatic restart)
+  - Rolling updates
+  - Rollback functionality
+  - Declarative management
+  
+  <Warning>
+  Standalone Pods are useful for testing and debugging, but not recommended for production workloads.
+  </Warning>
+</Accordion>
+
+---
+
+## Scheduling & Affinity
+
+<Accordion title="What is Node Affinity and when to use it?">
+  **Node Affinity** controls which nodes a Pod can be scheduled on using labels.
+  
+  **Types:**
+  - `requiredDuringSchedulingIgnoredDuringExecution` → **hard rule** (must match)
+  - `preferredDuringSchedulingIgnoredDuringExecution` → **soft rule** (prefer but not required)
+  
+  **Use Cases:**
+  - Schedule GPU workloads on GPU nodes
+  - Cost optimization using spot vs on-demand nodes
+  - Separate production and development workloads
+  - Place workloads in specific availability zones
+  
+  **Example:**
+  Run batch jobs on spot nodes, critical apps on on-demand nodes.
+  
+  ```yaml
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: node-type
+            operator: In
+            values:
+            - gpu
+  ```
+</Accordion>
+
+<Accordion title="Node Selector vs Node Affinity">
+  | Feature | Node Selector | Node Affinity |
+  |---------|---------------|---------------|
+  | Complexity | Simple | Advanced |
+  | Operators | Exact match only | In, NotIn, Exists, DoesNotExist |
+  | Soft Rules | No | Yes (preferred) |
+  | Flexibility | Low | High |
+  | Multiple conditions | No | Yes |
+  
+  **Node Selector (Simple):**
+  ```yaml
+  nodeSelector:
+    disktype: ssd
+  ```
+  
+  **Node Affinity (Advanced):**
+  ```yaml
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: disktype
+            operator: In
+            values:
+            - ssd
+            - nvme
+  ```
+</Accordion>
+
+<Accordion title="When to use Pod Anti-Affinity?">
+  Pod Anti-Affinity **prevents Pods from running on the same node**.
+  
+  **Use Cases:**
+  
+  1. **High Availability**
+     - Spread replicas across nodes to avoid single-node failure
+     
+  2. **Performance Isolation**
+     - Prevent two heavy workloads from competing on the same node
+     
+  3. **Security**
+     - Keep sensitive workloads separate from less trusted workloads
+  
+  **Example:**
+  ```yaml
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            app: myapp
+  ```
+  
+  This ensures no two Pods with label `app: myapp` run on the same node.
+</Accordion>
+
+---
+
+## Deployment Strategies
+
+<Accordion title="Types of Kubernetes Deployments">
+  <Tabs>
+    <Tab title="Recreate">
+      - Terminates all old Pods before creating new ones
+      - **Downtime occurs**
+      - Simplest strategy
+      - Use when downtime is acceptable
+    </Tab>
+    
+    <Tab title="Rolling Update">
+      - Gradually replaces old Pods with new ones
+      - **No downtime** (default strategy)
+      - Can configure `maxUnavailable` and `maxSurge`
+      - Most common production strategy
+    </Tab>
+    
+    <Tab title="Canary">
+      - Deploy new version to small subset of users
+      - Monitor metrics and errors
+      - Gradually increase traffic to new version
+      - Rollback if issues detected
+    </Tab>
+    
+    <Tab title="Blue-Green">
+      - Run two identical environments (Blue = current, Green = new)
+      - Switch traffic instantly between them
+      - Easy rollback by switching back
+      - Requires double resources temporarily
+    </Tab>
+  </Tabs>
+</Accordion>
+
+<Accordion title="How do you handle rollbacks in Kubernetes?">
+  ```bash
+  # Rollback to previous revision
+  kubectl rollout undo deployment/<name>
+  
+  # Rollback to specific revision
+  kubectl rollout undo deployment/<name> --to-revision=<rev>
+  
+  # Check rollout history
+  kubectl rollout history deployment/<name>
+  
+  # Check rollout status
+  kubectl rollout status deployment/<name>
+  ```
+  
+  **How it works:**
+  - Kubernetes keeps previous ReplicaSets
+  - Tools like ArgoCD, Helm, Spinnaker can handle rollbacks
+  - By default, keeps last 10 revisions (configurable via `revisionHistoryLimit`)
+</Accordion>
+
+---
+
+## AWS & Cloud
+
+<Accordion title="How would you isolate a network within an AWS VPC?">
+  - Use separate **public/private subnets** with different route tables
+  - Configure **NACLs** (Network Access Control Lists) at subnet level
+  - Use **Security Groups** at instance level
+  - Optionally use **AWS Network Firewall** for advanced filtering
+  - Use **Transit Gateway** for centralized network management
+  - Implement **VPC Peering** or **PrivateLink** for controlled cross-VPC communication
+</Accordion>
+
+<Accordion title="Architectural differences between GCP VPC and AWS VPC">
+  | Feature | AWS VPC | GCP VPC |
+  |---------|---------|----------|
+  | Scope | Region-scoped | **Global** |
+  | Subnets | AZ-specific | **Regional** (span zones) |
+  | Cross-region | Requires VPC Peering | **Built-in** |
+  | Default routing | Explicit | Automatic cross-region |
+  | Peering | Explicit setup required | Simpler setup |
+</Accordion>
+
+<Accordion title="How do you connect two VPCs in AWS?">
+  **Three Main Options:**
+  
+  1. **VPC Peering**
+     - Direct network connection between two VPCs
+     - Simple 1-to-1 connection
+     - Non-transitive (A↔B, B↔C doesn't mean A↔C)
+     
+  2. **Transit Gateway**
+     - Hub-and-spoke model
+     - Connects multiple VPCs and on-premises networks
+     - Scalable, centralized management
+     - Best for complex network topologies
+     
+  3. **PrivateLink**
+     - Expose services privately
+     - No VPC peering required
+     - Service-level access, not network-level
+</Accordion>
+
+<Accordion title="How to set up Kubernetes on AWS using EKS?">
+  ```bash
+  # Using eksctl (easiest method)
+  eksctl create cluster --name myCluster --region us-east-1
+  
+  # Update kubeconfig
+  aws eks update-kubeconfig --name myCluster --region us-east-1
+  
+  # Verify cluster
+  kubectl get nodes
+  ```
+  
+  **What eksctl creates:**
+  - EKS Control Plane
+  - Worker node groups (EC2 instances or Fargate)
+  - VPC with public/private subnets
+  - IAM roles for cluster and nodes
+  - Security groups
+</Accordion>
+
+---
+
+## Infrastructure as Code
+
+<Accordion title="How do you bring an existing resource into Terraform state?">
+  ```bash
+  terraform import <resource_type>.<name> <resource_id>
+  ```
+  
+  **Example:**
+  ```bash
+  # Import existing AWS EC2 instance
+  terraform import aws_instance.myserver i-1234567890abcdef0
+  
+  # Import S3 bucket
+  terraform import aws_s3_bucket.mybucket my-bucket-name
+  ```
+  
+  **Then run:**
+  ```bash
+  terraform plan
+  ```
+  
+  <Note>
+  You must first write the Terraform resource block before importing. Terraform import only updates state, it doesn't generate configuration.
+  </Note>
+</Accordion>
+
+<Accordion title="What is Terraform state drift? How can you detect and solve it?">
+  **State Drift** occurs when infrastructure is changed manually (outside Terraform).
+  
+  **Detection:**
+  ```bash
+  terraform plan  # Shows differences between state and reality
+  terraform refresh  # Updates state without applying changes
+  ```
+  
+  **Solutions:**
+  
+  1. **Apply Terraform changes** (bring infrastructure back to desired state)
+     ```bash
+     terraform apply
+     ```
+     
+  2. **Import manual changes** (accept manual changes into state)
+     ```bash
+     terraform import <resource>
+     ```
+     
+  3. **Prevention:**
+     - Use Terraform Cloud/Enterprise sentinel policies
+     - Implement proper RBAC
+     - Use cloud provider service control policies
+     - Regular `terraform plan` in CI/CD
+</Accordion>
+
+---
+
+## Backup & Disaster Recovery
+
+<Accordion title="How would you back up a cluster? What tools would you use?">
+  **Kubernetes Backup:**
+  - **Velero** - Most popular K8s backup tool
+    - Backs up cluster resources and persistent volumes
+    - Supports disaster recovery and cluster migration
+    
+  **Database Backup:**
+  - **AWS Backup** - Centralized backup service
+  - Database-specific tools (pg_dump, mysqldump)
+  - Cloud provider snapshots (EBS, RDS automated backups)
+  
+  **Stateful Workloads:**
+  - **PVC snapshots** using CSI drivers
+  - Volume snapshots via cloud provider APIs
+  
+  **etcd Backup (for cluster state):**
+  ```bash
+  ETCDCTL_API=3 etcdctl snapshot save snapshot.db
+  ```
+</Accordion>
+
+---
+
+## Cluster Management
+
+<Accordion title="How would you upgrade a Kubernetes cluster?">
+  **Best Practices:**
+  
+  1. **Test in staging first**
+  2. **Upgrade control plane** → then nodes
+  3. **Cordon & drain nodes** before upgrading:
+     ```bash
+     kubectl cordon <node-name>
+     kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+     ```
+  4. **Upgrade one minor version at a time** (1.26 → 1.27 → 1.28)
+  
+  **Managed Kubernetes (EKS/GKE/AKS):**
+  - Control plane upgrade is managed by cloud provider
+  - Manually upgrade node groups
+  
+  **Self-managed (kubeadm):**
+  ```bash
+  # Upgrade kubeadm
+  apt-get update && apt-get install -y kubeadm=1.28.0-00
+  
+  # Plan upgrade
+  kubeadm upgrade plan
+  
+  # Apply upgrade
+  kubeadm upgrade apply v1.28.0
+  
+  # Upgrade kubelet and kubectl on each node
+  apt-get install -y kubelet=1.28.0-00 kubectl=1.28.0-00
+  systemctl restart kubelet
+  ```
+</Accordion>
+
+---
+
+## Cost Optimization
+
+<Accordion title="What practices would you propose to reduce compute costs across the org?">
+  **1. Auto Scaling**
+  - Horizontal Pod Autoscaler (HPA)
+  - Cluster Autoscaler
+  - Vertical Pod Autoscaler (VPA)
+  
+  **2. Reserved/Spot Instances**
+  - Reserved Instances for predictable workloads (save 30-70%)
+  - Spot Instances for fault-tolerant workloads (save up to 90%)
+  - Savings Plans for flexible commitments
+  
+  **3. Rightsizing**
+  - Analyze resource utilization
+  - Right-size Pods and instances
+  - Remove resource limits where appropriate
+  - Use tools like Kubecost, Goldilocks
+  
+  **4. Serverless**
+  - AWS Lambda for event-driven workloads
+  - Fargate for containerized workloads without managing nodes
+  - Pay only for actual usage
+  
+  **5. Monitoring & Cleanup**
+  - Delete unused resources (old snapshots, unattached volumes)
+  - Shut down dev/test environments off-hours
+  - Use cloud provider cost explorer and recommendations
+  - Implement tagging strategy for cost allocation
+</Accordion>
+
+---
+
+## Security
+
+<Accordion title="What would you do if you accidentally pushed credentials to a remote repo?">
+  **Immediate Actions:**
+  
+  1. **Revoke/rotate keys immediately**
+     - AWS: Deactivate and delete access keys
+     - Generate new credentials
+     
+  2. **Clean Git history**
+     ```bash
+     # Using git-filter-repo (recommended)
+     git filter-repo --path credentials.json --invert-paths
+     
+     # Or BFG Repo-Cleaner
+     bfg --delete-files credentials.json
+     ```
+     
+  3. **Force push**
+     ```bash
+     git push origin --force --all
+     git push origin --force --tags
+     ```
+     
+  4. **Prevention:**
+     - Add `.env`, `credentials.json` to `.gitignore`
+     - Use **git-secrets** or **pre-commit hooks**
+     - Implement secret scanning in CI/CD (GitHub Advanced Security, GitGuardian)
+     - Use secret management (AWS Secrets Manager, HashiCorp Vault)
+     
+  <Warning>
+  Assume credentials are compromised immediately. Check CloudTrail/audit logs for unauthorized access.
+  </Warning>
+</Accordion>
+
+---
+
+## Docker & Containerization
+
+<Accordion title="What is Containerization?">
+  Packaging applications with all their dependencies into isolated containers using a shared OS kernel.
+  
+  **Benefits:**
+  - Consistent environments (dev, staging, prod)
+  - Faster deployments
+  - Resource efficiency (compared to VMs)
+  - Isolation and security
+  - Portability across platforms
+  
+  **Container vs VM:**
+  - Containers share OS kernel → lighter weight
+  - VMs include full OS → heavier but more isolated
+</Accordion>
+
+<Accordion title="What is a Dockerfile?">
+  A Dockerfile contains **instructions to build a Docker image**.
+  
+  **Example:**
+  ```dockerfile
+  FROM node:18
+  WORKDIR /app
+  COPY package*.json ./
+  RUN npm install
+  COPY . .
+  EXPOSE 3000
+  CMD ["npm", "start"]
+  ```
+  
+  **Common Instructions:**
+  - `FROM` - Base image
+  - `WORKDIR` - Set working directory
+  - `COPY` - Copy files from host to image
+  - `RUN` - Execute commands during build
+  - `EXPOSE` - Document ports (doesn't publish)
+  - `CMD` - Default command when container starts
+  - `ENTRYPOINT` - Configures container as executable
+</Accordion>
+
+<Accordion title="What is a Docker Network?">
+  A way for containers to communicate securely with:
+  - Other containers
+  - The host system
+  - External systems
+  
+  **Network Types:**
+  - **bridge** (default) - Private network for containers on same host
+  - **host** - Container uses host's network directly
+  - **overlay** - Multi-host networking for Swarm
+  - **macvlan** - Assign MAC address to container
+  - **none** - Disable networking
+  
+  **Commands:**
+  ```bash
+  # Create network
+  docker network create my_network
+  
+  # List networks
+  docker network ls
+  
+  # Run container on network
+  docker run --network=my_network nginx
+  ```
+</Accordion>

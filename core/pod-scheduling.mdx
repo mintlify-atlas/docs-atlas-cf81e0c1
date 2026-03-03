@@ -1,0 +1,277 @@
+---
+title: Pod Scheduling
+description: Control Pod placement with node selectors, affinity rules, taints, tolerations, and priority classes
+---
+
+# Pod Scheduling
+
+Kubernetes provides multiple mechanisms to control where Pods are scheduled in your cluster. This allows you to optimize resource usage, ensure high availability, and meet specific deployment requirements.
+
+## Node Selector
+
+The simplest way to constrain Pods to specific nodes is using `nodeSelector`. First, label your nodes:
+
+```bash
+kubectl label nodes nodeone.example.com sku=small
+```
+
+Then reference the label in your Pod:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnappone
+  namespace: learning
+  labels:
+   app: nnappone
+spec:
+  containers:
+    - name: networknuts-app
+      image: lovelearnlinux/webserver:v1
+      resources:
+        limits:
+          memory: "500Mi"
+        requests:
+          memory: "300Mi"
+  nodeSelector:
+    sku: small
+```
+
+<Note>
+  The Pod will only be scheduled on nodes with the `sku=small` label.
+</Note>
+
+## Node Affinity
+
+Node affinity provides more expressive rules for Pod placement compared to nodeSelector.
+
+### Required Node Affinity
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnappone
+  namespace: learning
+  labels:
+   app: nnappone
+spec:
+  containers:
+    - name: networknuts-app
+      image: lovelearnlinux/webserver:v1
+      resources:
+        limits:
+          memory: "500Mi"
+        requests:
+          memory: "300Mi"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: size
+            operator: In
+            values:
+            - small
+```
+
+<Tabs>
+  <Tab title="Required">
+    `requiredDuringSchedulingIgnoredDuringExecution`: The Pod **must** be placed on a node matching the criteria. If no node matches, the Pod remains pending.
+
+    **Use case**: Ensuring Pods only run on nodes with specific hardware (e.g., GPU nodes).
+  </Tab>
+
+  <Tab title="Preferred">
+    `preferredDuringSchedulingIgnoredDuringExecution`: The scheduler **tries** to place the Pod on matching nodes but will schedule it elsewhere if needed.
+
+    **Use case**: Soft preferences that improve performance but aren't strict requirements.
+  </Tab>
+</Tabs>
+
+### Affinity Operators
+
+- `In`: Label value must be in the list
+- `NotIn`: Label value must not be in the list
+- `Exists`: Label key must exist (value doesn't matter)
+- `DoesNotExist`: Label key must not exist
+- `Gt`: Label value must be greater than specified value
+- `Lt`: Label value must be less than specified value
+
+## Pod Affinity and Anti-Affinity
+
+Pod affinity rules allow you to schedule Pods based on labels of other Pods already running on nodes.
+
+### Pod Anti-Affinity Example
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnappone
+  namespace: learning
+  labels:
+   app: nnappone
+spec:
+  containers:
+    - name: networknuts-app
+      image: lovelearnlinux/webserver:v1
+      resources:
+        limits:
+          memory: "500Mi"
+        requests:
+          memory: "300Mi"
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - nnweb
+        topologyKey: "kubernetes.io/hostname"
+```
+
+<Accordion title="Understanding topologyKey">
+  The `topologyKey` defines the scope of the affinity rule. Common values:
+  
+  - `kubernetes.io/hostname`: Pods must/must not run on the same node
+  - `topology.kubernetes.io/zone`: Pods must/must not run in the same zone
+  - `topology.kubernetes.io/region`: Pods must/must not run in the same region
+</Accordion>
+
+<Warning>
+  For anti-affinity, change `podAffinity` to `podAntiAffinity` to ensure Pods are scheduled on different nodes.
+</Warning>
+
+## Taints and Tolerations
+
+Taints allow nodes to repel certain Pods, while tolerations allow Pods to schedule onto nodes with matching taints.
+
+### Adding Taints to Nodes
+
+```bash
+kubectl taint node nodeone.example.com color=pink:NoSchedule
+kubectl taint node nodetwo.example.com color=yellow:NoSchedule
+```
+
+### Pod with Toleration
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnwebserver
+  namespace: learning
+spec:
+  containers:
+    - name: nnwebserver
+      image: lovelearnlinux/webserver:v1
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "128Mi"
+        limits:
+          cpu: "1000m"
+          memory: "256Mi"
+      ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+  tolerations:
+  - key: "color"
+    operator: "Equal"
+    value: "pink"
+    effect: "NoSchedule"
+```
+
+### Taint Effects
+
+<CodeGroup>
+```yaml NoSchedule
+effect: "NoSchedule"
+# Pods without matching toleration won't be scheduled
+```
+
+```yaml PreferNoSchedule
+effect: "PreferNoSchedule"
+# Scheduler tries to avoid scheduling Pods without toleration
+```
+
+```yaml NoExecute
+effect: "NoExecute"
+# Evicts running Pods without matching toleration
+```
+</CodeGroup>
+
+<Tip>
+  Taints and tolerations work together: taints restrict which Pods a node accepts, while tolerations allow specific Pods to be scheduled on tainted nodes.
+</Tip>
+
+## Pod Priority and Preemption
+
+Priority classes allow you to define the importance of Pods relative to others.
+
+### Creating a Priority Class
+
+```yaml
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: mission-critical-apps
+value: 1000000
+preemptionPolicy: Never
+globalDefault: false
+description: "To be used only for mission critical applications"
+```
+
+### Using Priority Class in Pod
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: topgun
+  labels:
+    app: topgun
+    env: prod
+spec:
+  containers:
+  - name: boxone
+    image: lovelearnlinux/webserver:v1
+    imagePullPolicy: IfNotPresent
+  priorityClassName: mission-critical-apps
+```
+
+<Note>
+  **Priority Value Ranges**:
+  - User-defined: 0 to 1,000,000,000
+  - `system-cluster-critical`: 2,000,000,000 (used by coredns, calico)
+  - `system-node-critical`: 2,000,001,000 (used by etcd, kube-apiserver)
+</Note>
+
+### Preemption Policies
+
+- **`PreemptLowerPriority`**: Evicts lower priority Pods to make room
+- **`Never`**: Places Pod ahead in queue but doesn't evict others
+
+## Removing Labels and Taints
+
+```bash
+# Remove label
+kubectl label node nodeone.example.com sku-
+
+# Remove taint
+kubectl taint node nodeone.example.com color:NoSchedule-
+```
+
+## Best Practices
+
+- Use nodeSelector for simple constraints
+- Use node affinity for complex rules with multiple conditions
+- Use pod anti-affinity to spread replicas across nodes for high availability
+- Reserve taints for special-purpose nodes (GPU, high-memory, etc.)
+- Set priority classes for critical workloads to ensure they're scheduled first
+- Combine multiple scheduling constraints carefully to avoid Pods that can't be scheduled

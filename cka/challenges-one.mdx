@@ -1,0 +1,543 @@
+---
+title: "CKA Practice Challenges - Set One"
+description: "First set of hands-on practice tasks to prepare for the CKA exam"
+---
+
+## Overview
+
+This challenge set contains 17 practical tasks designed to test your Kubernetes administration skills. Each task reflects real-world scenarios you'll encounter in the CKA exam.
+
+<Note>
+  Work through these challenges in a practice cluster. Time yourself to simulate exam conditions.
+</Note>
+
+---
+
+## Task 1: RBAC - Extracting Information
+
+<Accordion title="Task Requirements">
+**Objectives:**
+
+1. Extract all kubeconfig context names to `/tmp/contexts`, one per line
+2. Write the current context name to `/tmp/current-context`
+3. Base64-decode the client certificate of user `account-0027` and save it to `/tmp/cert`
+
+**Skills Tested:**
+- kubeconfig manipulation
+- Context management
+- Base64 encoding/decoding
+- File operations
+</Accordion>
+
+<Tip>
+  Use `kubectl config view` to inspect kubeconfig structure. Combine with grep, awk, or jsonpath for extraction.
+</Tip>
+
+---
+
+## Task 2: Helm - Installing Application
+
+<Accordion title="Task Requirements">
+**Objectives:**
+
+<Steps>
+  <Step title="Create namespace">
+    Create the `minio` namespace
+  </Step>
+  
+  <Step title="Install Helm chart">
+    Install the `minio/operator` Helm chart into the `minio` namespace as release `minio-operator`
+  </Step>
+  
+  <Step title="Edit tenant configuration">
+    Edit `/opt/course/2/minio-tenant.yaml` to enable SFTP:
+    ```yaml
+    features:
+      enableSFTP: true
+    ```
+  </Step>
+  
+  <Step title="Apply tenant resource">
+    Apply the updated Tenant resource
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- Helm chart installation
+- Namespace management
+- YAML editing
+- Custom resource application
+</Accordion>
+
+---
+
+## Task 3: Pod Management
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+In the `project-h800` namespace, scale the two `o3db-*` Pods down to **one replica** to conserve resources.
+
+**Skills Tested:**
+- Resource identification
+- Scaling operations
+- Namespace-scoped commands
+</Accordion>
+
+<Tip>
+  Use `kubectl get` to identify the workload type (Deployment, StatefulSet, etc.) before scaling.
+</Tip>
+
+---
+
+## Task 4: Pod Management & QoS
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Identify the Pods in `project-c13` that are likely to be **terminated first** under resource pressure. Write their names to `/tmp/pods-terminated-first.txt`.
+
+**Skills Tested:**
+- Quality of Service (QoS) classes
+- Pod eviction behavior
+- Resource limits and requests
+- File output operations
+
+**QoS Classes (eviction order):**
+1. BestEffort (terminated first)
+2. Burstable
+3. Guaranteed (terminated last)
+</Accordion>
+
+<Warning>
+  Pods without resource requests or limits are classified as BestEffort and will be evicted first.
+</Warning>
+
+---
+
+## Task 5: HPA Setup
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Replace the existing autoscaler with a HorizontalPodAutoscaler for the `api-gateway`.
+
+<Steps>
+  <Step title="Remove ConfigMap">
+    Remove the `horizontal-scaling-config` ConfigMap
+  </Step>
+  
+  <Step title="Create HPA for staging">
+    Create HPA named `api-gateway`:
+    - Min replicas: 2
+    - Max replicas: 4
+    - Target CPU utilization: 50%
+  </Step>
+  
+  <Step title="Create HPA for production">
+    Same configuration but max replicas: 6
+  </Step>
+  
+  <Step title="Apply with kustomize">
+    ```bash
+    kubectl kustomize /opt/course/5/api-gateway/staging | kubectl apply -f -
+    kubectl kustomize /opt/course/5/api-gateway/prod | kubectl apply -f -
+    ```
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- HorizontalPodAutoscaler configuration
+- Kustomize usage
+- Multi-environment management
+</Accordion>
+
+---
+
+## Task 6: Persistent Volumes
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Create a complete storage solution with PV, PVC, and Deployment.
+
+**PersistentVolume:**
+- Name: `safari-pv`
+- Capacity: 2Gi
+- AccessMode: `ReadWriteOnce`
+- Path: `/Volumes/Data`
+
+**PersistentVolumeClaim** (in `project-t230`):
+- Name: `safari-pvc`
+- Storage: 2Gi
+
+**Deployment:**
+- Name: `safari`
+- Namespace: `project-t230`
+- Mount path: `/tmp/safari-data`
+- Image: `httpd:2-alpine`
+
+**Skills Tested:**
+- PersistentVolume configuration
+- PersistentVolumeClaim creation
+- Volume mounting in deployments
+- Storage binding
+</Accordion>
+
+---
+
+## Task 7: Monitoring Resource Consumption
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Write two bash scripts using `kubectl` to gather resource metrics.
+
+**Skills Tested:**
+- kubectl top commands
+- Metrics server usage
+- Bash scripting
+- Resource monitoring
+</Accordion>
+
+<Tip>
+  Use `kubectl top nodes` and `kubectl top pods` as starting points. Consider sorting and filtering options.
+</Tip>
+
+---
+
+## Task 8: Upgrade & Join Worker
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+<Steps>
+  <Step title="Upgrade node">
+    Upgrade `cka3962-node1` to match the control plane Kubernetes version
+  </Step>
+  
+  <Step title="Join cluster">
+    Join it to the cluster using `kubeadm`
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- kubeadm upgrade workflow
+- Node joining process
+- Version compatibility
+- Cluster operations
+</Accordion>
+
+<Warning>
+  Drain the node before upgrading and uncordon after completion. Always upgrade the control plane before worker nodes.
+</Warning>
+
+---
+
+## Task 9: Service Account
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Create a Pod that queries the Kubernetes API using a ServiceAccount.
+
+<Steps>
+  <Step title="Create pod">
+    Create Pod `api-contact` in `project-swan` namespace
+  </Step>
+  
+  <Step title="Use ServiceAccount">
+    Use the `secret-reader` ServiceAccount
+  </Step>
+  
+  <Step title="Query API">
+    Use `curl` inside the Pod to query all Secrets from the Kubernetes API
+  </Step>
+  
+  <Step title="Save result">
+    Save the result to `/opt/course/9/result.json`
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- ServiceAccount assignment
+- Kubernetes API access from pods
+- curl and API authentication
+- Token mounting
+</Accordion>
+
+<Tip>
+  ServiceAccount tokens are automatically mounted at `/var/run/secrets/kubernetes.io/serviceaccount/token`
+</Tip>
+
+---
+
+## Task 10: RBAC
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+In namespace `project-hamster`, create RBAC resources to grant limited permissions.
+
+**Create:**
+- ServiceAccount: `processor`
+- Role: `processor`
+- RoleBinding: `processor`
+
+**Permissions:**
+Grant permission to **create** only:
+- Secrets
+- ConfigMaps
+
+**Skills Tested:**
+- ServiceAccount creation
+- Role definition
+- RoleBinding configuration
+- Permission scoping
+</Accordion>
+
+---
+
+## Task 11: Taints and Tolerations
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+In namespace `project-tiger`, create a DaemonSet that runs on all nodes including control planes.
+
+**DaemonSet:** `ds-important`
+- Image: `httpd:2-alpine`
+- Labels: `id=ds-important`, `uuid=18426a0b-5f59-4e10-923f-c0e078e82462`
+- Resource requests: 10m CPU, 10Mi Memory
+- Must run on all nodes (including control planes)
+
+**Skills Tested:**
+- DaemonSet configuration
+- Tolerations for control plane taints
+- Resource requests
+- Label management
+</Accordion>
+
+<Tip>
+  Control plane nodes typically have the taint `node-role.kubernetes.io/control-plane:NoSchedule`. Add matching toleration.
+</Tip>
+
+---
+
+## Task 12: Deployment
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+In namespace `project-tiger`, create a Deployment with pod anti-affinity.
+
+**Deployment:** `deploy-important`
+- Replicas: 3
+- Labels: `id=very-important`
+
+**Containers:**
+- `container1`: `nginx:1-alpine`
+- `container2`: `google/pause`
+
+**Anti-Affinity:**
+- Use `topologyKey: kubernetes.io/hostname`
+- Ensure 1 Pod per node
+
+**Skills Tested:**
+- Multi-container pods
+- Pod anti-affinity
+- Topology spread
+- Deployment configuration
+</Accordion>
+
+---
+
+## Task 13: Gateway API
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+In namespace `project-r500`, migrate from Ingress to Gateway API.
+
+<Steps>
+  <Step title="Review existing Ingress">
+    Examine `/opt/course/13/ingress.yaml`
+  </Step>
+  
+  <Step title="Create HTTPRoute">
+    Create HTTPRoute named `traffic-director`:
+    - Replicate existing routes from Ingress
+  </Step>
+  
+  <Step title="Add conditional routing">
+    Add `/auto` path logic:
+    - If `User-Agent: mobile` → redirect to `/mobile`
+    - Otherwise → redirect to `/desktop`
+  </Step>
+  
+  <Step title="Test routes">
+    ```bash
+    curl r500.gateway:30080/desktop
+    curl r500.gateway:30080/mobile
+    curl r500.gateway:30080/auto -H "User-Agent: mobile"
+    curl r500.gateway:30080/auto
+    ```
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- Gateway API understanding
+- HTTPRoute configuration
+- Header-based routing
+- Ingress migration
+</Accordion>
+
+---
+
+## Task 14: Cluster Certificates
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Inspect and document cluster certificate expiration.
+
+<Steps>
+  <Step title="Check with openssl">
+    Check kube-apiserver certificate expiration using `openssl` or `cfssl`
+  </Step>
+  
+  <Step title="Save expiration date">
+    Save the date to `/opt/course/14/expiration`
+  </Step>
+  
+  <Step title="Verify with kubeadm">
+    Use `kubeadm` to confirm the expiration
+  </Step>
+  
+  <Step title="Document renewal command">
+    Save the `kubeadm` renew command to `/opt/course/14/kubeadm-renew-certs.sh`
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- Certificate inspection
+- kubeadm certificate management
+- OpenSSL usage
+- Cluster security
+</Accordion>
+
+<Tip>
+  Use `kubeadm certs check-expiration` to quickly view all certificate expiration dates.
+</Tip>
+
+---
+
+## Task 15: Network Policy
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+In namespace `project-snake`, create NetworkPolicy named `np-backend`.
+
+**Requirements:**
+
+Allow `backend-*` Pods to:
+- Connect to `db1-*` Pods on port **1111**
+- Connect to `db2-*` Pods on port **2222**
+
+**Skills Tested:**
+- NetworkPolicy configuration
+- Egress rules
+- Pod selector matching
+- Port-based filtering
+</Accordion>
+
+<Warning>
+  Remember to specify both pod selectors and port numbers. Network policies are namespace-scoped.
+</Warning>
+
+---
+
+## Task 16: CoreDNS Custom Domain
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Configure CoreDNS to support a custom domain in addition to the default `cluster.local`.
+
+<Steps>
+  <Step title="Backup configuration">
+    Backup current CoreDNS config to `/tmp/coredns_backup.yaml`
+  </Step>
+  
+  <Step title="Update CoreDNS">
+    Update CoreDNS ConfigMap to support:
+    - `SERVICE.NAMESPACE.svc.cluster.local` (default)
+    - `SERVICE.NAMESPACE.svc.custom-domain` (new)
+  </Step>
+  
+  <Step title="Test resolution">
+    ```bash
+    nslookup kubernetes.default.svc.cluster.local
+    nslookup kubernetes.default.svc.custom-domain
+    ```
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- CoreDNS configuration
+- ConfigMap editing
+- DNS testing
+- Service discovery
+</Accordion>
+
+---
+
+## Task 17: Container Debugging
+
+<Accordion title="Task Requirements">
+**Objective:**
+
+Use `crictl` to debug a container at the node level.
+
+<Steps>
+  <Step title="Create pod">
+    In namespace `project-tiger`, create Pod `tigers-reunite`:
+    - Labels: `pod=container`, `container=pod`
+    - Image: `httpd:2-alpine`
+  </Step>
+  
+  <Step title="SSH to node">
+    SSH into the node where the pod is scheduled
+  </Step>
+  
+  <Step title="Use crictl">
+    Use `crictl` to:
+    - Find the container ID
+    - Save container ID and `info.runtimeType` to `/tmp/pod-container.txt`
+    - Save container logs to `/tmp/pod-container.log`
+  </Step>
+</Steps>
+
+**Skills Tested:**
+- crictl commands
+- Container runtime interaction
+- Node-level debugging
+- SSH access
+</Accordion>
+
+<Tip>
+  Use `crictl ps` to list containers and `crictl inspect` to get detailed information.
+</Tip>
+
+---
+
+## Practice Tips
+
+<Note>
+  - Time yourself: Allocate 6-8 minutes per task
+  - Verify each solution before moving on
+  - Practice switching contexts and namespaces quickly
+  - Keep kubernetes.io documentation handy
+  - Review mistakes and understand why solutions work
+</Note>

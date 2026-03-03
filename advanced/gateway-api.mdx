@@ -1,0 +1,365 @@
+---
+title: Gateway API Implementation
+description: Implement Kubernetes Gateway API with NGINX Gateway Fabric, cert-manager, and Let's Encrypt SSL
+---
+
+Gateway API is the next-generation Kubernetes API for managing ingress traffic. It provides a more expressive and extensible way to configure load balancing and routing.
+
+## Prerequisites
+
+- Kubernetes cluster on AWS, Azure, or GCP
+- Helm installed
+- kubectl configured
+- Domain name with DNS access
+
+## Deploy Sample Application
+
+<Steps>
+  <Step title="Create Application Manifest">
+    ```yaml myapplication.yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: hello-app-html
+      namespace: default
+    data:
+      index.html: |
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>!! networknuts !!</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            }
+            .container {
+              text-align: center;
+              padding: 60px 80px;
+              background: rgba(255, 255, 255, 0.95);
+              border-radius: 20px;
+              box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+            }
+            h1 {
+              font-size: 3.5rem;
+              background: linear-gradient(135deg, #667eea, #764ba2);
+              -webkit-background-clip: text;
+              -webkit-text-fill-color: transparent;
+              margin-bottom: 20px;
+            }
+            p { color: #666; font-size: 1.2rem; }
+            .emoji { font-size: 4rem; margin-bottom: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="emoji">👋</div>
+            <h1>Hello from NetworkNuts!!</h1>
+            <p>NGINX Gateway Fabric is working! 🚀</p>
+          </div>
+        </body>
+        </html>
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: hello-app
+      namespace: default
+      labels:
+        app: hello-app
+    spec:
+      replicas: 2
+      selector:
+        matchLabels:
+          app: hello-app
+      template:
+        metadata:
+          labels:
+            app: hello-app
+        spec:
+          containers:
+            - name: nginx
+              image: nginx:alpine
+              ports:
+                - containerPort: 80
+              volumeMounts:
+                - name: html
+                  mountPath: /usr/share/nginx/html
+          volumes:
+            - name: html
+              configMap:
+                name: hello-app-html
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: hello-app-service
+      namespace: default
+    spec:
+      selector:
+        app: hello-app
+      ports:
+        - protocol: TCP
+          port: 80
+          targetPort: 80
+    ```
+  </Step>
+
+  <Step title="Apply the Manifest">
+    ```bash
+    kubectl apply -f myapplication.yaml
+    ```
+  </Step>
+</Steps>
+
+## Setup cert-manager
+
+cert-manager automatically issues and renews Let's Encrypt SSL certificates.
+
+<Steps>
+  <Step title="Install cert-manager">
+    ```bash
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+    ```
+
+    This installs:
+    - CRDs (Certificate, Issuer, ClusterIssuer)
+    - Controllers that communicate with Let's Encrypt
+    - cert-manager namespace
+  </Step>
+
+  <Step title="Create ClusterIssuer">
+    ```yaml clusterissuer.yaml
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: letsencrypt-prod
+    spec:
+      acme:
+        email: your-email@example.com
+        server: https://acme-v02.api.letsencrypt.org/directory
+        privateKeySecretRef:
+          name: letsencrypt-prod-key
+        solvers:
+          - http01:
+              gatewayHTTPRoute:
+                parentRefs:
+                  - name: main-gateway
+                    namespace: nginx-gateway
+    ```
+  </Step>
+
+  <Step title="Apply ClusterIssuer">
+    ```bash
+    kubectl apply -f clusterissuer.yaml
+    kubectl get clusterissuer
+    ```
+  </Step>
+</Steps>
+
+## Install Gateway API
+
+<Steps>
+  <Step title="Install Gateway API CRDs">
+    Gateway API resources are not included in Kubernetes by default:
+
+    ```bash
+    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+    ```
+  </Step>
+
+  <Step title="Verify CRDs">
+    ```bash
+    kubectl get crds | grep gateway
+    ```
+  </Step>
+</Steps>
+
+## Install NGINX Gateway Fabric
+
+<Steps>
+  <Step title="Install via Helm">
+    ```bash
+    helm install ngf oci://ghcr.io/nginx/charts/nginx-gateway-fabric \
+      --namespace nginx-gateway \
+      --create-namespace \
+      --version 2.4.0 \
+      --wait
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    kubectl get all -n nginx-gateway
+    ```
+  </Step>
+</Steps>
+
+## Create Gateway Resources
+
+### GatewayClass
+
+```yaml gatewayclass.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: nginx
+spec:
+  controllerName: gateway.nginx.org/nginx-gateway-fabric
+```
+
+```bash
+kubectl apply -f gatewayclass.yaml
+```
+
+### Gateway
+
+The Gateway provisions a cloud load balancer and handles TLS configuration:
+
+```yaml gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: main-gateway
+  namespace: nginx-gateway
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  gatewayClassName: nginx
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "style.aloksrivastava.name"
+      allowedRoutes:
+        namespaces:
+          from: All
+```
+
+```bash
+kubectl apply -f gateway.yaml
+kubectl -n nginx-gateway get gateway
+kubectl -n nginx-gateway describe gateway main-gateway
+```
+
+<Info>
+The `cert-manager.io/cluster-issuer` annotation automatically creates an SSL certificate for the domain and stores it in a Kubernetes Secret. The Gateway then uses this Secret to enable HTTPS.
+</Info>
+
+### HTTPRoute
+
+Define routing rules to forward traffic to your services:
+
+```yaml httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hello-app-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: nginx-gateway
+  hostnames:
+    - "style.aloksrivastava.name"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: hello-app-service
+          port: 80
+```
+
+```bash
+kubectl apply -f httproute.yaml
+kubectl get httproute
+kubectl describe httproute hello-app-route
+```
+
+## DNS Configuration
+
+<Steps>
+  <Step title="Get LoadBalancer Address">
+    ```bash
+    kubectl -n nginx-gateway get gateway main-gateway -o jsonpath='{.status.addresses[0].value}'
+    ```
+  </Step>
+
+  <Step title="Update DNS Records">
+    Create an A record or CNAME pointing your domain to the LoadBalancer address:
+
+    ```
+    style.aloksrivastava.name → <LoadBalancer-IP-or-Hostname>
+    ```
+  </Step>
+
+  <Step title="Verify Access">
+    Visit your domain in a browser to verify the application is accessible.
+  </Step>
+</Steps>
+
+## SSL Certificate Management
+
+<Accordion title="Automatic Certificate Issuance">
+With the `cert-manager.io/cluster-issuer` annotation on the Gateway:
+
+1. cert-manager automatically creates an SSL certificate for the domain
+2. The certificate is stored in a Kubernetes Secret
+3. The Gateway uses this Secret to enable HTTPS
+4. Certificates are automatically renewed before expiration
+</Accordion>
+
+<Accordion title="Using Custom Certificates">
+If you have a custom SSL certificate, create a Secret manually:
+
+```bash
+kubectl create secret tls my-cert \
+  --cert=path/to/cert.crt \
+  --key=path/to/cert.key
+```
+
+Then reference it in the Gateway:
+
+```yaml
+listeners:
+  - name: https
+    port: 443
+    protocol: HTTPS
+    tls:
+      certificateRefs:
+        - name: my-cert
+```
+</Accordion>
+
+## Gateway vs Ingress
+
+<Note>
+Gateway API provides several advantages over traditional Ingress:
+
+- **Role-oriented**: Separates infrastructure and application concerns
+- **Expressive**: Supports advanced traffic routing and policies
+- **Extensible**: Built with CRDs allowing custom implementations
+- **Portable**: Vendor-neutral API with multiple implementations
+</Note>
+
+## Best Practices
+
+- Use separate Gateways for different teams or environments
+- Implement proper RBAC for Gateway resources
+- Monitor Gateway metrics and logs
+- Use meaningful hostnames and organize routes logically
+- Test certificate renewal before expiration
+- Keep NGINX Gateway Fabric updated
+
+<Warning>
+Always test Gateway and HTTPRoute changes in a non-production environment first. Misconfigurations can disrupt traffic to your applications.
+</Warning>

@@ -1,0 +1,420 @@
+---
+title: Monitoring Stack
+description: Deploy Prometheus, Grafana, and Loki for comprehensive Kubernetes monitoring and logging
+---
+
+Monitor your Kubernetes cluster with a complete observability stack featuring Prometheus for metrics, Grafana for visualization, and Loki for log aggregation.
+
+## Prometheus and Grafana
+
+### Prerequisites
+
+- Running Kubernetes cluster
+- Helm installed
+- kubectl configured
+
+### Installing Lens (Optional)
+
+Lens provides a desktop GUI for Kubernetes cluster management:
+
+```bash
+wget https://api.k8slens.dev/binaries/Lens-5.3.3-latest.20211223.1.amd64.deb
+dpkg -i Lens-5.3.3-latest.20211223.1.amd64.deb
+```
+
+<Info>
+Copy your kubeconfig file from the manager node to `~/.kube/config` on your workstation, then launch Lens with the `lens` command.
+</Info>
+
+### Install Prometheus Stack with Helm
+
+<Steps>
+  <Step title="Install kubectl (if needed)">
+    ```bash
+    snap install kubectl --classic
+    ```
+  </Step>
+
+  <Step title="Install Helm">
+    ```bash
+    curl https://baltocdn.com/helm/signing.asc | sudo apt-key add -
+    sudo apt-get install apt-transport-https --yes
+    echo "deb https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+    sudo apt-get update
+    sudo apt-get install helm
+    ```
+  </Step>
+
+  <Step title="Add Prometheus Repository">
+    ```bash
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    helm repo update
+    ```
+  </Step>
+
+  <Step title="Create Namespace">
+    ```bash
+    kubectl create ns monitoring
+    ```
+  </Step>
+
+  <Step title="Install kube-prometheus-stack">
+    ```bash
+    helm install prometheus --namespace monitoring prometheus-community/kube-prometheus-stack
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    kubectl get pods -n monitoring
+    ```
+  </Step>
+</Steps>
+
+### Accessing Grafana
+
+<Steps>
+  <Step title="Check Grafana Service">
+    ```bash
+    kubectl get svc -n monitoring
+    ```
+  </Step>
+
+  <Step title="Port Forward to Grafana">
+    ```bash
+    kubectl port-forward -n monitoring service/prometheus-grafana 3000:80
+    ```
+  </Step>
+
+  <Step title="Access Dashboard">
+    Open your browser and navigate to:
+
+    ```
+    http://localhost:3000
+    ```
+
+    Default credentials:
+    - **Username**: admin
+    - **Password**: prom-operator
+  </Step>
+</Steps>
+
+<Note>
+The kube-prometheus-stack includes pre-configured dashboards for:
+- Cluster overview
+- Node metrics
+- Pod metrics
+- Persistent volumes
+- Kubernetes API server
+</Note>
+
+## Loki for Log Management
+
+Loki is a log aggregation system designed to work seamlessly with Grafana.
+
+### Installation
+
+<Steps>
+  <Step title="Add Grafana Repository">
+    ```bash
+    helm repo add grafana https://grafana.github.io/helm-charts
+    helm repo update
+    helm search repo loki
+    ```
+  </Step>
+
+  <Step title="Generate Custom Values">
+    ```bash
+    helm show values grafana/loki-stack > loki-values.yaml
+    ```
+  </Step>
+
+  <Step title="Configure Loki Values">
+    Edit `loki-values.yaml` with the following key configurations:
+
+    ```yaml loki-values.yaml
+    loki:
+      enabled: true
+      isDefault: true
+      url: http://{{(include "loki.serviceName" .)}}:{{ .Values.loki.service.port }}
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: http-metrics
+        initialDelaySeconds: 45
+      livenessProbe:
+        httpGet:
+          path: /ready
+          port: http-metrics
+        initialDelaySeconds: 45
+
+    promtail:
+      enabled: true
+      config:
+        logLevel: info
+        serverPort: 3101
+        clients:
+          - url: http://{{ .Release.Name }}:3100/loki/api/v1/push
+
+    grafana:
+      enabled: true
+      sidecar:
+        datasources:
+          enabled: true
+          maxLines: 1000
+      image:
+        tag: 10.3.3
+      service:
+        type: NodePort
+
+    prometheus:
+      enabled: false
+
+    fluent-bit:
+      enabled: false
+
+    filebeat:
+      enabled: false
+
+    logstash:
+      enabled: false
+    ```
+  </Step>
+
+  <Step title="Deploy Loki Stack">
+    ```bash
+    helm upgrade --install --values loki-values.yaml loki grafana/loki-stack -n grafana-loki --create-namespace
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    kubectl get pods -n grafana-loki
+    ```
+  </Step>
+</Steps>
+
+### Deploy Log Generator
+
+Create a test application to generate logs:
+
+```yaml
+kubectl apply -f - <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: log-generator
+  namespace: default
+  labels:
+    app: log-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: log-generator
+  template:
+    metadata:
+      labels:
+        app: log-generator
+    spec:
+      containers:
+        - name: log-generator
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              while true; do
+                ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ");
+                echo "{\"timestamp\":\"${ts}\",\"level\":\"info\",\"message\":\"Hello from log-generator! Testing Loki JSON logs.\"}";
+                sleep 5;
+              done
+          resources:
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: log-generator
+  namespace: default
+  labels:
+    app: log-generator
+spec:
+  selector:
+    app: log-generator
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+EOF
+```
+
+### Accessing Loki Grafana
+
+<Steps>
+  <Step title="Get NodePort">
+    ```bash
+    kubectl get svc loki-grafana -n grafana-loki -o jsonpath="{.spec.ports[0].nodePort}"
+    ```
+  </Step>
+
+  <Step title="Get Credentials">
+    ```bash
+    # Username
+    kubectl get secret loki-grafana -n grafana-loki -o jsonpath="{.data.admin-user}" | base64 --decode
+
+    # Password
+    kubectl get secret loki-grafana -n grafana-loki -o jsonpath="{.data.admin-password}" | base64 --decode
+    ```
+  </Step>
+
+  <Step title="Access Dashboard">
+    ```
+    http://<NODE-IP>:<NODE-PORT>
+    ```
+  </Step>
+</Steps>
+
+## LogQL Query Examples
+
+Loki uses LogQL for querying logs:
+
+<CodeGroup>
+```logql Namespace Logs
+{namespace="default"}
+```
+
+```logql Label Selector
+{app="my-service", namespace="default"}
+```
+
+```logql Filter with Text
+{app="my-service", namespace="default"} |= "curl"
+```
+
+```logql Exclude Text
+{app="my-service", namespace="default"} != "curl"
+```
+
+```logql Container Logs
+{pod="webapp", namespace="prod"} |= "curl"
+{pod="multi", container="boxone", namespace="prod"}
+```
+
+```logql Event Logs
+{source="event-exporter"}
+{source="event-exporter"} |= "Failed"
+```
+
+```logql Node Logs
+{node_name="your-node-name"}
+```
+</CodeGroup>
+
+## Grafana Dashboards
+
+### Pre-installed Dashboards
+
+The kube-prometheus-stack includes:
+
+- **Kubernetes / Compute Resources / Cluster**: Overall cluster metrics
+- **Kubernetes / Compute Resources / Namespace (Pods)**: Per-namespace pod metrics
+- **Kubernetes / Compute Resources / Node (Pods)**: Per-node metrics
+- **Node Exporter / Nodes**: Detailed node statistics
+
+### Creating Custom Dashboards
+
+<Steps>
+  <Step title="Navigate to Dashboards">
+    In Grafana, click **Dashboards** → **New Dashboard**
+  </Step>
+
+  <Step title="Add Panel">
+    Click **Add new panel**
+  </Step>
+
+  <Step title="Write PromQL Query">
+    Example queries:
+
+    ```promql
+    # CPU usage by pod
+    sum(rate(container_cpu_usage_seconds_total[5m])) by (pod)
+
+    # Memory usage by namespace
+    sum(container_memory_usage_bytes) by (namespace)
+
+    # Pod restart count
+    kube_pod_container_status_restarts_total
+    ```
+  </Step>
+
+  <Step title="Configure Visualization">
+    Select chart type (Graph, Gauge, Table, etc.) and customize
+  </Step>
+</Steps>
+
+## Alerting with Prometheus
+
+### Create PrometheusRule
+
+```yaml high-cpu-alert.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: high-cpu-usage
+  namespace: monitoring
+spec:
+  groups:
+  - name: cpu_alerts
+    interval: 30s
+    rules:
+    - alert: HighCPUUsage
+      expr: sum(rate(container_cpu_usage_seconds_total[5m])) by (pod) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High CPU usage detected"
+        description: "Pod {{ $labels.pod }} is using more than 80% CPU"
+```
+
+```bash
+kubectl apply -f high-cpu-alert.yaml
+```
+
+## When to Use Loki
+
+<Note>
+Choose Loki when:
+- You want a simple, scalable, and cost-effective logging solution
+- You're operating in a cloud-native environment
+- You're already using Grafana and Prometheus
+- Your log analysis needs are straightforward
+- You need to correlate logs with metrics in a single interface
+</Note>
+
+## Best Practices
+
+- Set appropriate retention policies for metrics and logs
+- Use persistent volumes for Prometheus and Loki data
+- Configure resource limits for monitoring components
+- Create alerts for critical metrics
+- Regularly review and clean up unused dashboards
+- Use label selectors efficiently to optimize queries
+- Enable authentication and authorization for Grafana
+- Export important dashboards as code for version control
+
+<Warning>
+Monitoring systems can consume significant resources. Always set resource limits and monitor the monitoring stack itself.
+</Warning>
+
+## References
+
+- [Prometheus Community Helm Charts](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+- [LogQL Documentation](https://grafana.com/docs/loki/latest/logql/)

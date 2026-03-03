@@ -1,0 +1,184 @@
+---
+title: Pods and Containers
+description: Understanding Pods, containers, and Quality of Service (QoS) classes in Kubernetes
+---
+
+# Pods and Containers
+
+Pods are the smallest deployable units in Kubernetes. A Pod represents a single instance of a running process in your cluster and can contain one or more containers.
+
+## Basic Pod Definition
+
+Here's a simple Pod with a single container:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnappone
+  labels:
+   app: nnappone
+spec:
+  containers:
+    - name: networknuts-app
+      image: lovelearnlinux/webserver:v1
+```
+
+## Resource Management
+
+Kubernetes allows you to specify resource requests and limits for containers. Requests define the minimum resources guaranteed to a container, while limits define the maximum resources a container can use.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnwebserver
+spec:
+  containers:
+    - name: nnwebserver
+      image: lovelearnlinux/webserver:v1
+      resources:
+        requests: # minimum guaranteed
+          cpu: "500m"
+          memory: "128Mi"
+        limits: # maximum allowed
+          cpu: "1000m"
+          memory: "256Mi"
+      ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+```
+
+<Note>
+  CPU is measured in millicores (m). 1000m = 1 CPU core. Memory is measured in bytes with units like Mi (mebibytes) and Gi (gibibytes).
+</Note>
+
+## Quality of Service (QoS) Classes
+
+Kubernetes assigns a QoS class to each Pod based on resource requests and limits. This determines scheduling and eviction behavior.
+
+<Tabs>
+  <Tab title="Guaranteed">
+    Pods get the **Guaranteed** QoS class when:
+    - Every container has both CPU and memory limits
+    - Requests equal limits for both CPU and memory
+
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: nnappone
+      namespace: learning
+      labels:
+       app: nnappone
+    spec:
+      containers:
+        - name: networknuts-app
+          image: lovelearnlinux/webserver:v1
+          resources:
+            limits:
+              memory: "250Mi"
+              cpu: "400m"
+            requests:
+              memory: "250Mi"
+              cpu: "400m"
+    ```
+
+    <Tip>
+      Guaranteed Pods have the highest priority during eviction. Kubernetes ensures these resources are available before scheduling the Pod.
+    </Tip>
+  </Tab>
+
+  <Tab title="Burstable">
+    Pods get the **Burstable** QoS class when:
+    - At least one container has memory or CPU requests/limits
+    - Requests and limits are not equal
+
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: nnappone
+      namespace: learning
+      labels:
+       app: nnappone
+    spec:
+      containers:
+        - name: networknuts-app
+          image: lovelearnlinux/webserver:v1
+          resources:
+            limits:
+              memory: "250Mi"
+            requests:
+              memory: "150Mi"
+    ```
+
+    The Pod initially receives 150Mi of memory but can burst up to 250Mi if resources are available.
+  </Tab>
+
+  <Tab title="BestEffort">
+    Pods get the **BestEffort** QoS class when:
+    - No containers have any resource requests or limits
+
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: nnappone
+      namespace: learning
+      labels:
+       app: nnappone
+    spec:
+      containers:
+        - name: networknuts-app
+          image: lovelearnlinux/webserver:v1
+    ```
+
+    <Warning>
+      BestEffort Pods are the first to be evicted during resource pressure. Use this only for non-critical workloads.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Container Ports
+
+You can expose container ports in the Pod specification:
+
+```yaml
+spec:
+  containers:
+    - name: nnwebserver
+      image: lovelearnlinux/webserver:v1
+      ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+```
+
+## Checking QoS Class
+
+You can verify the QoS class assigned to a Pod:
+
+```bash
+kubectl describe pod/nnappone --namespace=learning
+```
+
+Look for the "QoS Class" field in the output.
+
+## Resource Limits Behavior
+
+<Accordion title="What happens when limits are exceeded?">
+  - **CPU**: The container is throttled but not terminated
+  - **Memory**: The container may be terminated (OOMKilled) if it exceeds memory limits
+
+  Kubernetes will attempt to restart containers that are killed due to exceeding memory limits.
+</Accordion>
+
+## Best Practices
+
+- Always set resource requests for production workloads
+- Set limits to prevent runaway processes from affecting other Pods
+- Use Guaranteed QoS for critical applications
+- Monitor actual resource usage to fine-tune requests and limits
+- Keep requests realistic to ensure efficient cluster utilization

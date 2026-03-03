@@ -1,0 +1,397 @@
+---
+title: Services
+description: Expose applications with Services, configure health checks with probes, and manage container lifecycle
+---
+
+# Services
+
+Services provide stable network endpoints for accessing Pods. While Pods are ephemeral and can be created/destroyed dynamically, Services ensure your application remains accessible through a consistent endpoint.
+
+## Basic Service
+
+A ClusterIP Service (default type) provides internal cluster access:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nnappone-service
+spec:
+  selector:
+    app: nnappone
+  ports:
+    - protocol: TCP
+      port: 8080        # Service port
+      targetPort: 80    # Container port
+```
+
+<Note>
+  The Service routes traffic to Pods with labels matching the `selector`. In this case, any Pod with `app: nnappone` will receive traffic.
+</Note>
+
+## Service Types
+
+<Tabs>
+  <Tab title="ClusterIP">
+    **Default type**. Exposes the Service on a cluster-internal IP.
+
+    ```yaml
+    spec:
+      type: ClusterIP  # Can be omitted (default)
+      ports:
+      - port: 8080
+        targetPort: 80
+    ```
+
+    **Use case**: Internal communication between services within the cluster.
+  </Tab>
+
+  <Tab title="NodePort">
+    Exposes the Service on each Node's IP at a static port.
+
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: nnweb-svc
+      namespace: learning
+      labels:
+        app: hello-nn
+    spec:
+      type: NodePort
+      ports:
+      - port: 80          # ClusterIP port
+        nodePort: 30003   # External port (30000-32767)
+        protocol: TCP
+      selector:
+        app: hello-nn
+    ```
+
+    **Access patterns**:
+    - Internal: `http://<cluster-ip>:80`
+    - External: `http://<node-ip>:30003`
+
+    **Use case**: Expose services externally for testing or when LoadBalancer is not available.
+  </Tab>
+
+  <Tab title="LoadBalancer">
+    Creates an external load balancer (cloud provider-specific).
+
+    ```yaml
+    spec:
+      type: LoadBalancer
+      ports:
+      - port: 80
+        targetPort: 80
+    ```
+
+    **Use case**: Production external access with cloud provider integration.
+  </Tab>
+
+  <Tab title="ExternalName">
+    Maps a Service to a DNS name.
+
+    ```yaml
+    spec:
+      type: ExternalName
+      externalName: example.com
+    ```
+
+    **Use case**: Redirect cluster requests to external services.
+  </Tab>
+</Tabs>
+
+## Complete Service Example with Deployment
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nnweb-svc
+  namespace: learning
+  labels:
+    app: hello-nn
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    nodePort: 30003
+    protocol: TCP
+  selector:
+    app: hello-nn
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-deploy
+  namespace: learning
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-nn
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: hello-nn
+    spec:
+      containers:
+      - name: webserver-pod
+        image: lovelearnlinux/webserver:v1
+        ports:
+        - containerPort: 80
+```
+
+## Service Discovery
+
+```bash
+# View services
+kubectl get svc --namespace=learning
+
+# Describe service (shows endpoints)
+kubectl describe service nnweb-svc --namespace=learning
+
+# View endpoints (Pod IPs backing the service)
+kubectl get endpoints nnweb-svc --namespace=learning
+```
+
+<Tip>
+  Endpoints are automatically created and updated as Pods matching the selector are created or destroyed.
+</Tip>
+
+## Health Checks with Probes
+
+Kubernetes uses probes to determine Pod health and readiness.
+
+### Liveness Probe
+
+Determines if a container is running. If the liveness probe fails, the container is restarted.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnwebserver
+spec:
+  containers:
+    - name: nnwebserver
+      image: lovelearnlinux/webserver:v1
+      livenessProbe:
+        exec:
+          command:
+          - cat 
+          - /var/www/html/index.html
+        initialDelaySeconds: 10  # Wait before first probe
+        timeoutSeconds: 3        # Probe timeout
+        periodSeconds: 20        # Check every 20 seconds
+        failureThreshold: 3      # Restart after 3 failures
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "128Mi"
+        limits:
+          cpu: "1000m"
+          memory: "256Mi"
+      ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+```
+
+### Probe Types
+
+<CodeGroup>
+```yaml Exec Probe
+livenessProbe:
+  exec:
+    command:
+    - cat 
+    - /tmp/health.txt
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 3
+```
+
+```yaml HTTP Probe
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+    httpHeaders:
+    - name: Custom-Header
+      value: Awesome
+  initialDelaySeconds: 3
+  periodSeconds: 3
+```
+
+```yaml TCP Probe
+livenessProbe:
+  tcpSocket:
+    port: 8080
+  initialDelaySeconds: 15
+  periodSeconds: 20
+```
+</CodeGroup>
+
+### Readiness Probe
+
+Determines if a container is ready to accept traffic. Failed readiness probes remove the Pod from Service endpoints.
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
+```
+
+<Accordion title="Liveness vs Readiness">
+  **Liveness Probe**:
+  - Detects when a container is stuck or deadlocked
+  - Failure triggers container restart
+  - Use for: Detecting application hangs
+
+  **Readiness Probe**:
+  - Detects when a container is ready to serve traffic
+  - Failure removes Pod from Service load balancing
+  - Use for: Warming up caches, waiting for dependencies
+
+  **Startup Probe** (Kubernetes 1.16+):
+  - Gives containers time to start before liveness checks begin
+  - Useful for slow-starting applications
+</Accordion>
+
+### Advanced Health Check Example
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnappone
+  namespace: learning
+  labels:
+   app: nnappone
+spec:
+  containers:
+    - name: networknuts-app
+      image: lovelearnlinux/webserver:v1
+      args:
+        - /bin/sh
+        - -c
+        - touch /tmp/health.txt; sleep 30; rm -rf /tmp/health.txt; sleep 35
+      livenessProbe:
+        exec:
+          command:
+            - cat 
+            - /tmp/health.txt
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        failureThreshold: 3
+      resources:
+        requests:
+          cpu: "400m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+      ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+```
+
+<Note>
+  This example creates a health file, waits 30 seconds, then removes it. The liveness probe will fail after the file is removed, causing Kubernetes to restart the container.
+</Note>
+
+## Container Lifecycle Hooks
+
+Lifecycle hooks allow you to run code at specific points in a container's lifecycle.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nnappone
+  namespace: learning
+  labels:
+   app: nnappone
+spec:
+  containers:
+    - name: networknuts-app
+      image: lovelearnlinux/webserver:v1
+      lifecycle:
+        postStart:
+          exec:
+            command: ["/bin/sh", "-c", "useradd networknuts -p redhat"]
+        preStop:
+          exec:
+            command: ["/bin/sh","-c","rm -rf /home/networknuts; userdel networknuts"]
+```
+
+<Tabs>
+  <Tab title="postStart">
+    Executed immediately after a container is created.
+
+    **Use cases**:
+    - Initialize application state
+    - Create required directories or files
+    - Register with external services
+
+    <Warning>
+      If postStart fails, the container is terminated and restarted.
+    </Warning>
+  </Tab>
+
+  <Tab title="preStop">
+    Executed immediately before a container is terminated.
+
+    **Use cases**:
+    - Graceful shutdown procedures
+    - Save state or flush caches
+    - Deregister from external services
+    - Complete in-flight requests
+
+    <Note>
+      Kubernetes waits for preStop to complete before sending SIGTERM to the container.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Service Management Commands
+
+```bash
+# Create service
+kubectl create -f service-for-pod.yml
+
+# Get services
+kubectl get svc
+kubectl get svc --namespace=learning
+
+# Describe service
+kubectl describe service nnappone-service
+
+# Test service from within cluster
+kubectl run -it --rm debug --image=busybox --restart=Never -- wget -O- http://nnappone-service:8080
+
+# Delete service
+kubectl delete service nnappone-service
+```
+
+## Best Practices
+
+- Always use readiness probes for Pods behind Services
+- Set appropriate `initialDelaySeconds` to avoid false failures during startup
+- Use liveness probes conservatively to avoid restart loops
+- Set `failureThreshold` high enough to tolerate transient failures
+- Use preStop hooks for graceful shutdowns
+- Monitor Service endpoints to ensure Pods are being selected correctly
+- Use headless Services (clusterIP: None) when you need direct Pod IPs
+- Label Services and Pods consistently for easy discovery

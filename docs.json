@@ -1,122 +1,95 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Kubernetes Learning Guide",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#326CE5",
+    "light": "#5B8DEF",
+    "dark": "#1E4BA3"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/networknuts/kubernetes"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/networknuts/kubernetes"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Learn",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "cluster-setup"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "core/pods-containers",
+              "core/pod-scheduling",
+              "core/deployments",
+              "core/services",
+              "core/namespaces",
+              "core/storage",
+              "core/rbac"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Advanced Topics",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "advanced/helm",
+              "advanced/kustomize",
+              "advanced/argocd",
+              "advanced/velero-backup",
+              "advanced/gateway-api",
+              "advanced/ingress-controller",
+              "advanced/monitoring",
+              "advanced/security",
+              "advanced/multi-master"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "CKA Exam",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Preparation",
             "pages": [
-              "api-reference/introduction"
+              "cka/overview",
+              "cka/exam-tips"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Practice Challenges",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "cka/challenges-one",
+              "cka/challenges-two"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              "reference/manifests",
+              "reference/interview-questions",
+              "reference/troubleshooting"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

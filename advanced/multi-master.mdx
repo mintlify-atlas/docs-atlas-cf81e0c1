@@ -1,0 +1,472 @@
+---
+title: Multi-Master Cluster Setup
+description: Deploy a highly available Kubernetes cluster with multiple master nodes and HAProxy load balancer
+---
+
+A multi-master Kubernetes cluster provides high availability by running multiple control plane nodes. This guide uses HAProxy for load balancing across master nodes.
+
+## Architecture Overview
+
+This setup includes:
+- 2 master nodes (control plane)
+- 2 worker nodes
+- 1 load balancer (HAProxy)
+- All nodes running Ubuntu 16.04+
+
+## Infrastructure Requirements
+
+<Info>
+This example uses AWS EC2 instances:
+
+- **Master nodes**: 2 CPU, 2 GB RAM, 10 GB storage (x2)
+- **Worker nodes**: 1 CPU, 2 GB RAM, 10 GB storage (x2)
+- **Load balancer**: 1 CPU, 2 GB RAM, 10 GB storage (x1)
+</Info>
+
+### Initial Preparation
+
+<Steps>
+  <Step title="Note IP Addresses">
+    Record the internal IP addresses of all machines:
+
+    ```bash
+    # On each machine
+    hostname -I
+    ```
+  </Step>
+
+  <Step title="Set Hostnames">
+    On each machine, set appropriate hostname:
+
+    ```bash
+    # On load balancer
+    hostnamectl set-hostname loadbalancer
+
+    # On masters
+    hostnamectl set-hostname manager1  # First master
+    hostnamectl set-hostname manager2  # Second master
+
+    # On workers
+    hostnamectl set-hostname worker1   # First worker
+    hostnamectl set-hostname worker2   # Second worker
+    ```
+  </Step>
+
+  <Step title="Update /etc/hosts">
+    On all machines, add hostname mappings:
+
+    ```bash /etc/hosts
+    127.0.0.1 localhost <hostname>
+    
+    # Replace with actual IPs
+    <loadbalancer-ip> loadbalancer
+    <manager1-ip> manager1
+    <manager2-ip> manager2
+    <worker1-ip> worker1
+    <worker2-ip> worker2
+    ```
+  </Step>
+
+  <Step title="Reboot and Verify">
+    ```bash
+    reboot
+    ```
+
+    After reboot, verify hostname:
+    ```bash
+    hostname
+    ```
+  </Step>
+</Steps>
+
+<Note>
+Run `top` after SSH to prevent connection timeout during setup.
+</Note>
+
+## Configure Load Balancer
+
+<Steps>
+  <Step title="Update System">
+    ```bash
+    sudo apt-get update && sudo apt-get upgrade -y
+    ```
+  </Step>
+
+  <Step title="Install HAProxy">
+    ```bash
+    sudo apt-get install haproxy -y
+    ```
+  </Step>
+
+  <Step title="Configure HAProxy">
+    Edit the HAProxy configuration:
+
+    ```bash
+    vim /etc/haproxy/haproxy.cfg
+    ```
+
+    Add the following at the end of the file:
+
+    ```haproxy /etc/haproxy/haproxy.cfg
+    frontend fe-apiserver
+        bind 0.0.0.0:6443
+        mode tcp
+        option tcplog
+        default_backend be-apiserver
+
+    backend be-apiserver
+        mode tcp
+        option tcplog
+        option tcp-check
+        balance roundrobin
+        default-server inter 10s downinter 5s rise 2 fall 2 slowstart 60s maxconn 250 maxqueue 256 weight 100
+        server manager1 <manager1-ip>:6443 check
+        server manager2 <manager2-ip>:6443 check
+    ```
+
+    Replace `<manager1-ip>` and `<manager2-ip>` with actual IP addresses.
+  </Step>
+
+  <Step title="Restart and Enable HAProxy">
+    ```bash
+    systemctl restart haproxy
+    systemctl enable haproxy
+    systemctl status haproxy
+    ```
+  </Step>
+
+  <Step title="Verify HAProxy">
+    Test that HAProxy is listening on port 6443:
+
+    ```bash
+    nc -v localhost 6443
+    ```
+  </Step>
+</Steps>
+
+## Install Kubernetes Components
+
+Run this script on all nodes (both masters and workers), except the load balancer.
+
+<Steps>
+  <Step title="Create Installation Script">
+    ```bash for-all-machines.sh
+    #!/bin/bash
+    echo "Disabling swap"
+    swapoff -a
+    sed -e '/swap/s/^/#/g' -i /etc/fstab
+
+    echo "Installing Kubernetes version 1.24.1-00"
+    sudo apt-get update
+    sudo apt-get install -y apt-transport-https ca-certificates curl
+    sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+    apt-get update
+    apt-get install -y kubelet=1.24.1-00 kubeadm=1.24.1-00 kubectl=1.24.1-00 docker.io
+    apt-mark hold kubelet kubeadm kubectl
+
+    cat <<EOF | sudo tee /etc/docker/daemon.json
+    {
+        "exec-opts": ["native.cgroupdriver=systemd"]
+    }
+    EOF
+
+    systemctl daemon-reload
+    systemctl restart docker
+    systemctl restart kubelet
+
+    echo "ALL DONE - OK"
+    ```
+  </Step>
+
+  <Step title="Run Script">
+    Make executable and run on each master and worker:
+
+    ```bash
+    chmod +x for-all-machines.sh
+    sudo ./for-all-machines.sh
+    ```
+  </Step>
+</Steps>
+
+## Initialize First Master
+
+<Steps>
+  <Step title="SSH to Manager1">
+    ```bash
+    ssh manager1
+    sudo -i
+    ```
+  </Step>
+
+  <Step title="Initialize Cluster">
+    Replace `<loadbalancer-internal-IP>` with the actual IP:
+
+    ```bash
+    kubeadm init \
+      --control-plane-endpoint "<loadbalancer-internal-IP>:6443" \
+      --upload-certs \
+      --pod-network-cidr=192.168.0.0/16
+    ```
+  </Step>
+
+  <Step title="Save Join Commands">
+    The output will include two join commands:
+    1. For joining additional master nodes (with `--control-plane` flag)
+    2. For joining worker nodes
+
+    Save both commands in a file for later use.
+  </Step>
+</Steps>
+
+<Warning>
+Keep the join tokens secure. They provide access to join nodes to your cluster.
+</Warning>
+
+## Join Second Master
+
+<Steps>
+  <Step title="SSH to Manager2">
+    ```bash
+    ssh manager2
+    sudo -i
+    ```
+  </Step>
+
+  <Step title="Run Master Join Command">
+    Use the join command for control plane from Step 3:
+
+    ```bash
+    kubeadm join loadbalancer:6443 --token <token> \
+      --discovery-token-ca-cert-hash sha256:<hash> \
+      --control-plane --certificate-key <certificate-key>
+    ```
+  </Step>
+</Steps>
+
+## Join Worker Nodes
+
+On each worker node:
+
+<Steps>
+  <Step title="SSH to Worker">
+    ```bash
+    ssh worker1  # Repeat for worker2
+    sudo -i
+    ```
+  </Step>
+
+  <Step title="Run Worker Join Command">
+    Use the worker join command from Step 3:
+
+    ```bash
+    kubeadm join loadbalancer:6443 --token <token> \
+      --discovery-token-ca-cert-hash sha256:<hash>
+    ```
+  </Step>
+</Steps>
+
+## Configure kubectl on Load Balancer
+
+<Steps>
+  <Step title="Create .kube Directory">
+    ```bash
+    mkdir -p $HOME/.kube
+    ```
+  </Step>
+
+  <Step title="Copy Admin Config">
+    Copy the contents of `/etc/kubernetes/admin.conf` from manager1 to `$HOME/.kube/config` on the load balancer.
+
+    ```bash
+    # On manager1
+    cat /etc/kubernetes/admin.conf
+
+    # On loadbalancer
+    vim $HOME/.kube/config
+    # Paste the contents
+    ```
+  </Step>
+
+  <Step title="Install kubectl">
+    ```bash
+    snap install kubectl --classic
+    ```
+  </Step>
+
+  <Step title="Check Cluster Status">
+    ```bash
+    kubectl get nodes
+    ```
+
+    Nodes will be NotReady until we install the CNI.
+  </Step>
+</Steps>
+
+## Install Calico Network Plugin
+
+<Steps>
+  <Step title="Install Tigera Operator">
+    ```bash
+    kubectl create -f https://projectcalico.docs.tigera.io/manifests/tigera-operator.yaml
+    ```
+  </Step>
+
+  <Step title="Download Custom Resources">
+    ```bash
+    curl https://projectcalico.docs.tigera.io/manifests/custom-resources.yaml -O
+    ```
+  </Step>
+
+  <Step title="Apply Custom Resources">
+    ```bash
+    kubectl create -f custom-resources.yaml
+    ```
+  </Step>
+
+  <Step title="Verify Nodes">
+    Wait a few minutes, then check node status:
+
+    ```bash
+    kubectl get nodes
+    ```
+
+    All nodes should now be in Ready state.
+  </Step>
+</Steps>
+
+## Verify Cluster
+
+<CodeGroup>
+```bash Check Nodes
+kubectl get nodes -o wide
+```
+
+```bash Check System Pods
+kubectl get pods -n kube-system
+```
+
+```bash Check Components
+kubectl get componentstatuses
+```
+
+```bash Test Deployment
+kubectl create deployment nginx --image=nginx
+kubectl expose deployment nginx --port=80 --type=NodePort
+kubectl get svc nginx
+```
+</CodeGroup>
+
+## High Availability Testing
+
+<Steps>
+  <Step title="Deploy Test Application">
+    ```bash
+    kubectl create deployment ha-test --image=nginx --replicas=3
+    kubectl expose deployment ha-test --port=80 --type=NodePort
+    ```
+  </Step>
+
+  <Step title="Shutdown Manager1">
+    ```bash
+    # On manager1
+    shutdown -h now
+    ```
+  </Step>
+
+  <Step title="Verify Cluster Still Works">
+    From the load balancer:
+
+    ```bash
+    kubectl get nodes
+    kubectl get pods
+    ```
+
+    The cluster should still be functional with manager2 handling requests.
+  </Step>
+
+  <Step title="Restart Manager1">
+    Power on manager1 and verify it rejoins the cluster:
+
+    ```bash
+    kubectl get nodes
+    ```
+  </Step>
+</Steps>
+
+## Architecture Benefits
+
+<Accordion title="High Availability">
+- No single point of failure in control plane
+- Cluster remains operational if one master fails
+- HAProxy distributes API server load
+</Accordion>
+
+<Accordion title="Scalability">
+- Can add more master nodes for higher API throughput
+- Worker nodes can be added/removed without affecting control plane
+- Load balancer prevents overloading individual masters
+</Accordion>
+
+<Accordion title="Maintenance">
+- Can upgrade one master at a time
+- Perform maintenance without cluster downtime
+- Rolling updates of control plane components
+</Accordion>
+
+## Troubleshooting
+
+### HAProxy Not Working
+
+```bash
+# Check HAProxy status
+systemctl status haproxy
+
+# Check HAProxy logs
+journalctl -u haproxy -f
+
+# Test connectivity to masters
+telnet <manager1-ip> 6443
+telnet <manager2-ip> 6443
+```
+
+### Nodes Not Joining
+
+```bash
+# Check kubelet logs
+journalctl -u kubelet -f
+
+# Verify token hasn't expired
+kubeadm token list
+
+# Generate new token if needed
+kubeadm token create --print-join-command
+```
+
+### Network Issues
+
+```bash
+# Check Calico pods
+kubectl get pods -n calico-system
+
+# Describe Calico installation
+kubectl describe installation default
+
+# Check node connectivity
+kubectl run test --image=busybox --rm -it -- ping <node-ip>
+```
+
+## Best Practices
+
+- Use at least 3 master nodes for production (odd numbers for etcd quorum)
+- Place masters in different availability zones
+- Monitor HAProxy and set up health checks
+- Backup etcd regularly from all masters
+- Use persistent storage for etcd data
+- Implement proper RBAC and security policies
+- Keep all nodes on the same Kubernetes version
+- Use automation tools like Ansible for cluster setup
+
+<Note>
+For production environments, consider using managed Kubernetes services (EKS, GKE, AKS) or tools like kops, kubeadm, or Rancher for more robust multi-master setups.
+</Note>
