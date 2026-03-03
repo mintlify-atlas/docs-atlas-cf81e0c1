@@ -1,0 +1,110 @@
+{
+  "projectType": "general",
+  "projectName": "Kubernetes Learning Guide",
+  "projectDescription": "Comprehensive Kubernetes learning resources with hands-on examples, CKA exam preparation, and interview questions",
+  "theme": "aspen",
+  "primaryColor": "#326CE5",
+  "lightColor": "#5B8DEF",
+  "darkColor": "#1E4BA3",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Learn",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "cluster-setup"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core/pods-containers",
+              "core/pod-scheduling",
+              "core/deployments",
+              "core/services",
+              "core/namespaces",
+              "core/storage",
+              "core/rbac"
+            ]
+          },
+          {
+            "group": "Advanced Topics",
+            "pages": [
+              "advanced/helm",
+              "advanced/kustomize",
+              "advanced/argocd",
+              "advanced/velero-backup",
+              "advanced/gateway-api",
+              "advanced/ingress-controller",
+              "advanced/monitoring",
+              "advanced/security",
+              "advanced/multi-master"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CKA Exam",
+        "groups": [
+          {
+            "group": "Preparation",
+            "pages": [
+              "cka/overview",
+              "cka/exam-tips"
+            ]
+          },
+          {
+            "group": "Practice Challenges",
+            "pages": [
+              "cka/challenges-one",
+              "cka/challenges-two"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              "reference/manifests",
+              "reference/interview-questions",
+              "reference/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Hands-on YAML manifests for all Kubernetes resources",
+    "Cluster setup scripts for multiple K8s versions",
+    "CKA exam preparation with real-world challenges",
+    "Advanced topics including ArgoCD, Helm, and Kustomize",
+    "DevOps interview questions and answers",
+    "Step-by-step tutorials with practical examples"
+  ],
+  "publicApiSurface": [
+    "Pods with QoS classes (Guaranteed, Burstable, BestEffort)",
+    "Pod scheduling (Node affinity, Pod affinity/anti-affinity, Taints/Tolerations)",
+    "Deployments with rolling updates and HPA",
+    "Services (ClusterIP, NodePort, LoadBalancer)",
+    "Storage (PV, PVC, StorageClass, NFS)",
+    "RBAC (ServiceAccounts, Roles, RoleBindings, ClusterRoles)",
+    "ConfigMaps and Secrets",
+    "DaemonSets and StatefulSets",
+    "Network Policies",
+    "Ingress and Gateway API",
+    "Helm charts and Kustomize overlays",
+    "ArgoCD for GitOps",
+    "Velero for backup/restore",
+    "Cluster setup with kubeadm",
+    "Metric Server and HPA",
+    "Priority Classes and Resource Quotas",
+    "Liveness/Readiness probes"
+  ]
+}
