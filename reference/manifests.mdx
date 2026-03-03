@@ -201,6 +201,217 @@ description: Quick reference for common Kubernetes YAML manifests with copy-past
 
 ---
 
+## DaemonSet Manifests
+
+<Tabs>
+  <Tab title="Basic DaemonSet">
+    ```yaml
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: fluentd-logging
+      labels:
+        k8s-app: fluentd-logging
+    spec:
+      selector:
+        matchLabels:
+          name: fluentd-elasticsearch
+      template:
+        metadata:
+          labels:
+            name: fluentd-elasticsearch
+        spec:
+          containers:
+          - name: fluentd-elasticsearch
+            image: quay.io/fluentd_elasticsearch/fluentd:v2.5.2
+            resources:
+              limits:
+                memory: 200Mi
+              requests:
+                cpu: 100m
+                memory: 200Mi
+    ```
+    <Note>
+    DaemonSets ensure all (or some) nodes run a copy of a Pod. Common use cases: logs collection, node monitoring, cluster storage daemons
+    </Note>
+  </Tab>
+
+  <Tab title="DaemonSet with Tolerations">
+    ```yaml
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: ds-important
+      namespace: project-tiger
+    spec:
+      selector:
+        matchLabels:
+          id: ds-important
+      template:
+        metadata:
+          labels:
+            id: ds-important
+            uuid: 18426a0b-5f59-4e10-923f-c0e078e82462
+        spec:
+          tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            effect: NoSchedule
+          containers:
+          - name: httpd
+            image: httpd:2-alpine
+            resources:
+              requests:
+                cpu: 10m
+                memory: 10Mi
+    ```
+    <Tip>
+    Use tolerations to run DaemonSet Pods on control plane nodes for monitoring or logging
+    </Tip>
+  </Tab>
+</Tabs>
+
+---
+
+## StatefulSet Manifests
+
+<Tabs>
+  <Tab title="StatefulSet with Headless Service">
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: nginx-headless
+      labels:
+        app: nginx
+    spec:
+      ports:
+      - port: 80
+        name: web
+      clusterIP: None
+      selector:
+        app: nginx
+    ---
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: web
+    spec:
+      selector:
+        matchLabels:
+          app: nginx
+      serviceName: "nginx-headless"
+      replicas: 3
+      template:
+        metadata:
+          labels:
+            app: nginx
+        spec:
+          containers:
+          - name: nginx
+            image: k8s.gcr.io/nginx-slim:0.8
+            ports:
+            - containerPort: 80
+              name: web
+            volumeMounts:
+            - name: www
+              mountPath: /usr/share/nginx/html
+      volumeClaimTemplates:
+      - metadata:
+          name: www
+        spec:
+          accessModes: [ "ReadWriteOnce" ]
+          storageClassName: "standard"
+          resources:
+            requests:
+              storage: 1Gi
+    ```
+    <Note>
+    StatefulSets provide stable network identities and persistent storage for stateful applications like databases
+    </Note>
+  </Tab>
+</Tabs>
+
+---
+
+## Job and CronJob Manifests
+
+<Tabs>
+  <Tab title="Basic Job">
+    ```yaml
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: batch-job
+    spec:
+      template:
+        metadata:
+          labels:
+            app: batch-job
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: nn-batch
+            image: lovelearnlinux/batch-job
+    ```
+    <Note>
+    Jobs create one or more Pods and ensure a specified number complete successfully
+    </Note>
+  </Tab>
+
+  <Tab title="Parallel Job">
+    ```yaml
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: parallel-batch-job
+    spec:
+      completions: 5
+      parallelism: 2
+      template:
+        metadata:
+          labels:
+            app: batch-job
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: nn-batch
+            image: lovelearnlinux/batch-job
+    ```
+    <Tip>
+    - **completions**: Total number of successful Pod completions required
+    - **parallelism**: Number of Pods to run in parallel
+    </Tip>
+  </Tab>
+
+  <Tab title="CronJob">
+    ```yaml
+    apiVersion: batch/v1
+    kind: CronJob
+    metadata:
+      name: hello
+    spec:
+      schedule: "*/1 * * * *"
+      jobTemplate:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: hello
+                image: busybox
+                args:
+                - /bin/sh
+                - -c
+                - date; echo Hello from the Kubernetes cluster
+              restartPolicy: OnFailure
+    ```
+    <Note>
+    CronJobs run Jobs on a schedule using Cron syntax. `*/1 * * * *` = every minute
+    </Note>
+  </Tab>
+</Tabs>
+
+---
+
 ## Service Manifests
 
 <Tabs>
@@ -260,6 +471,133 @@ description: Quick reference for common Kubernetes YAML manifests with copy-past
         protocol: TCP
       selector:
         app: hello-nn
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## ConfigMap and Secret Manifests
+
+<Tabs>
+  <Tab title="ConfigMap - Literal Values">
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: app-config
+      namespace: prod
+    data:
+      database_url: "postgresql://db:5432"
+      max_connections: "100"
+      log_level: "info"
+    ```
+    <Note>
+    ConfigMaps store non-confidential configuration data as key-value pairs
+    </Note>
+  </Tab>
+
+  <Tab title="ConfigMap - Script File">
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: mytestscript
+    data:
+      test.sh: |
+        echo "testing script"
+        df -h
+        date
+    ```
+    <Tip>
+    Use the pipe `|` for multi-line values to preserve formatting
+    </Tip>
+  </Tab>
+
+  <Tab title="Pod with ConfigMap as Env">
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: app-pod
+    spec:
+      containers:
+      - name: app
+        image: nginx
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: database_url
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: log_level
+    ```
+  </Tab>
+
+  <Tab title="Pod with ConfigMap as Volume">
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: script-pod
+    spec:
+      volumes:
+      - name: testing
+        configMap:
+          name: mytestscript
+          defaultMode: 0777
+      containers:
+      - name: nginx
+        image: lovelearnlinux/webserver:v1
+        command: ["/bin/bash", "./tmp/test.sh"]
+        volumeMounts:
+        - mountPath: /tmp
+          name: testing
+    ```
+  </Tab>
+
+  <Tab title="Secret - Opaque">
+    ```yaml
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: app-secrets
+      namespace: prod
+    type: Opaque
+    data:
+      username: YWRtaW4=
+      password: cGFzc3dvcmQxMjM=
+    ```
+    <Warning>
+    Secret values must be base64-encoded. Use `echo -n 'value' | base64` to encode
+    </Warning>
+  </Tab>
+
+  <Tab title="Pod with Secret">
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: secret-pod
+    spec:
+      containers:
+      - name: app
+        image: nginx
+        env:
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: password
     ```
   </Tab>
 </Tabs>
@@ -390,6 +728,118 @@ HPA automatically scales Pods based on CPU/memory utilization or custom metrics
   - If Pod has no resource block → `default` and `defaultRequest` apply
   - If Pod has resource block → values must be within `min` and `max`
 </Accordion>
+
+---
+
+## NetworkPolicy Manifests
+
+<Tabs>
+  <Tab title="Deny All Ingress">
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: deny-all-ingress
+      namespace: default
+    spec:
+      podSelector: {}
+      policyTypes:
+      - Ingress
+    ```
+    <Warning>
+    This policy denies all incoming traffic to all Pods in the namespace by default
+    </Warning>
+  </Tab>
+
+  <Tab title="Allow Specific Pod Communication">
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: np-backend
+      namespace: project-snake
+    spec:
+      podSelector:
+        matchLabels:
+          app: backend
+      policyTypes:
+      - Egress
+      egress:
+      - to:
+        - podSelector:
+            matchLabels:
+              app: db1
+        ports:
+        - protocol: TCP
+          port: 1111
+      - to:
+        - podSelector:
+            matchLabels:
+              app: db2
+        ports:
+        - protocol: TCP
+          port: 2222
+    ```
+    <Note>
+    This allows backend Pods to connect to db1 on port 1111 and db2 on port 2222
+    </Note>
+  </Tab>
+
+  <Tab title="Allow from Namespace">
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-from-namespace
+      namespace: production
+    spec:
+      podSelector:
+        matchLabels:
+          app: api
+      policyTypes:
+      - Ingress
+      ingress:
+      - from:
+        - namespaceSelector:
+            matchLabels:
+              environment: production
+        ports:
+        - protocol: TCP
+          port: 8080
+    ```
+    <Tip>
+    Use namespaceSelector to control traffic between namespaces
+    </Tip>
+  </Tab>
+
+  <Tab title="Allow External Traffic">
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-external
+      namespace: default
+    spec:
+      podSelector:
+        matchLabels:
+          app: web
+      policyTypes:
+      - Ingress
+      ingress:
+      - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+            - 10.0.0.0/8
+        ports:
+        - protocol: TCP
+          port: 80
+    ```
+    <Note>
+    This allows external traffic on port 80 but blocks the 10.0.0.0/8 range
+    </Note>
+  </Tab>
+</Tabs>
 
 ---
 
